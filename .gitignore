@@ -1,3 +1,4 @@
 node_modules/
 server/splitdumb.db
 dist/
+server/splitdumb.db*
