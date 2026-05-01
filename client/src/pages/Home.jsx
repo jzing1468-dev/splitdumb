@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
+const AUTH_SERVICE = 'https://auth.johnzhong.win';
+
 function Home() {
   const [groupName, setGroupName] = useState('');
   const [groupCode, setGroupCode] = useState('');
@@ -14,9 +16,25 @@ function Home() {
   useEffect(() => {
     const groups = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
     setSavedGroups(groups);
-    const auth = JSON.parse(localStorage.getItem('splitdumb_auth') || 'null');
-    setAuthUser(auth);
+    // Check auth via cookie — hit the /me endpoint
+    api.me().then(user => {
+      setAuthUser(user);
+      localStorage.setItem('splitdumb_auth', JSON.stringify(user));
+    }).catch(() => {
+      setAuthUser(null);
+      localStorage.removeItem('splitdumb_auth');
+    });
   }, []);
+
+  const handleLogout = async (e) => {
+    e.preventDefault();
+    try {
+      await fetch(`${AUTH_SERVICE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch (e) {}
+    localStorage.removeItem('splitdumb_auth');
+    setAuthUser(null);
+    window.location.href = '/splitdumb/';
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -75,12 +93,14 @@ function Home() {
         {authUser && (
           <div style={{ marginTop: 12 }}>
             <a href="/splitdumb/admin" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.9rem' }}>🛡️ Admin Panel</a>
-            <span style={{ marginLeft: 16, fontSize: '0.85rem', color: 'var(--text-dim)' }}>Logged in as {authUser.username}</span>
+            <span style={{ marginLeft: 16, fontSize: '0.85rem', color: 'var(--text-dim)' }}>
+              Logged in as {authUser.username} · <a href="#" onClick={handleLogout} style={{ color: 'var(--text-dim)' }}>Logout</a>
+            </span>
           </div>
         )}
         {!authUser && (
           <div style={{ marginTop: 12 }}>
-            <a href={`https://auth.johnzhong.win/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`} style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>🔐 Admin Login</a>
+            <a href={`${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`} style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>🔐 Admin Login</a>
           </div>
         )}
       </div>

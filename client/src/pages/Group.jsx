@@ -35,14 +35,19 @@ function Group() {
 
   useEffect(() => { fetchGroup(); }, [fetchGroup]);
 
-  // Check admin status
+  // Check admin status via cookie + URL token
   useEffect(() => {
-    const auth = JSON.parse(localStorage.getItem('splitdumb_auth') || 'null');
-    if (auth?.role === 'admin') setIsAdmin(true);
     // Check URL for admin_token (from share link)
     const params = new URLSearchParams(window.location.search);
     const token = params.get('admin');
     if (token) setAdminToken(token);
+
+    // Check cookie-based auth
+    api.me().then(user => {
+      if (user?.role === 'admin') setIsAdmin(true);
+    }).catch(() => {
+      // Not logged in — that's fine, user just won't see admin controls
+    });
   }, []);
 
   const hasAdmin = isAdmin || adminToken;
