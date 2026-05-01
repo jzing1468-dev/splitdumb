@@ -60,13 +60,14 @@ function calculateSimplifiedDebts(groupId) {
     });
   });
 
-  // Subtract all confirmed settlements
+  // Subtract all confirmed settlements only (pending are not yet settled)
   const settlements = db.prepare(
-    "SELECT from_id, to_id, amount FROM settlements WHERE group_id = ? AND status != 'disputed'"
+    "SELECT from_id, to_id, amount FROM settlements WHERE group_id = ? AND status = 'confirmed'"
   ).all(groupId);
+  // from_id paid to_id amount: from's debt decreases, to's credit decreases
   settlements.forEach(s => {
-    balances[s.from_id] = (balances[s.from_id] || 0) - s.amount;
-    balances[s.to_id] = (balances[s.to_id] || 0) + s.amount;
+    balances[s.from_id] = (balances[s.from_id] || 0) + s.amount;
+    balances[s.to_id] = (balances[s.to_id] || 0) - s.amount;
   });
 
   // Minimize cash flow: greedily match highest creditor with highest debtor
