@@ -3,9 +3,11 @@ import Home from './pages/Home';
 import Group from './pages/Group';
 import './App.css';
 
+const BASE_PATH = '/splitdumb';
+
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={BASE_PATH}>
       <div className="app">
         <header className="app-header">
           <h1 className="app-title">💸 SplitDumb</h1>

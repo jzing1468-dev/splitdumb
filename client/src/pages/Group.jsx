@@ -90,8 +90,9 @@ function Group() {
     }
   };
 
+  const shareUrl = `${window.location.origin}/splitdumb/group/${code}`;
   const copyCode = () => {
-    navigator.clipboard.writeText(code);
+    navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -110,7 +111,7 @@ function Group() {
         <div className="group-code">
           Code: <code>{group.code}</code>
           <button className="copy-btn" onClick={copyCode}>
-            {copied ? '✓ Copied!' : '📋 Copy'}
+            {copied ? '✓ Copied!' : '🔗 Share'}
           </button>
         </div>
       </div>

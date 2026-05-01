@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+// In production, API is at /splitdumb/api/v1/
+// In dev, Vite proxy handles /splitdumb/api → localhost:3001/api
+const API_BASE = '/splitdumb/api/v1';
 
 async function request(url, options = {}) {
   const res = await fetch(`${API_BASE}${url}`, {
