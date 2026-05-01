@@ -161,6 +161,17 @@ app.get('/api/v1/auth/me', requireAuth, (req, res) => {
   res.json({ username: req.user.username, role: req.user.role });
 });
 
+// Admin: list all groups
+app.get('/api/v1/admin/groups', requireAdmin, (req, res) => {
+  try {
+    const groups = prepare('SELECT g.*, (SELECT COUNT(*) FROM members WHERE group_id = g.id) as member_count, (SELECT COUNT(*) FROM expenses WHERE group_id = g.id) as expense_count FROM groups g ORDER BY g.created_at DESC').all();
+    res.json(groups);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to list groups' });
+  }
+});
+
 // ==================== GROUP ROUTES ====================
 
 app.post('/api/v1/groups', (req, res) => {

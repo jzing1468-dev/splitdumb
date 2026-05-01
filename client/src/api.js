@@ -16,6 +16,7 @@ export const api = {
   login: (username, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   me: () => request('/auth/me'),
+  adminGroups: () => request('/admin/groups'),
 
   createGroup: (name, passcode) => request('/groups', { method: 'POST', body: JSON.stringify({ name, passcode }) }),
   getGroup: (code) => request(`/groups/${code}`),

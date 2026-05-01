@@ -13,9 +13,12 @@ function Login() {
     setLoading(true);
     try {
       const result = await api.login(username, password);
-      // Store auth state
       localStorage.setItem('splitdumb_auth', JSON.stringify(result.user));
-      window.location.href = '/splitdumb/';
+      if (result.user.role === 'admin') {
+        window.location.href = '/splitdumb/admin';
+      } else {
+        window.location.href = '/splitdumb/';
+      }
     } catch (err) {
       setError(err.message);
     } finally {

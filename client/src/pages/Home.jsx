@@ -8,11 +8,14 @@ function Home() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [savedGroups, setSavedGroups] = useState([]);
+  const [authUser, setAuthUser] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     const groups = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
     setSavedGroups(groups);
+    const auth = JSON.parse(localStorage.getItem('splitdumb_auth') || 'null');
+    setAuthUser(auth);
   }, []);
 
   const handleCreate = async (e) => {
@@ -69,6 +72,17 @@ function Home() {
       <div style={{ padding: '48px 20px 24px', textAlign: 'center' }}>
         <h2 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: 8 }}>Split expenses,<br />not friendships.</h2>
         <p style={{ color: 'var(--text-dim)', fontSize: '0.95rem' }}>No sign-up needed. Create a group, share the code, start splitting.</p>
+        {authUser && (
+          <div style={{ marginTop: 12 }}>
+            <a href="/splitdumb/admin" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.9rem' }}>🛡️ Admin Panel</a>
+            <span style={{ marginLeft: 16, fontSize: '0.85rem', color: 'var(--text-dim)' }}>Logged in as {authUser.username}</span>
+          </div>
+        )}
+        {!authUser && (
+          <div style={{ marginTop: 12 }}>
+            <a href="/splitdumb/login" style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>🔐 Admin Login</a>
+          </div>
+        )}
       </div>
 
       <div className="card">

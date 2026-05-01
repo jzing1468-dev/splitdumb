@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Group from './pages/Group';
 import Login from './pages/Login';
+import Admin from './pages/Admin';
 import './App.css';
 
 const BASE_PATH = '/splitdumb';
@@ -18,6 +19,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/group/:code" element={<Group />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </main>
