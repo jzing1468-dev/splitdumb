@@ -1,70 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api';
 
+// This component checks auth status and shows admin link or login redirect
 function Login() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [checking, setChecking] = useState(true);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const result = await api.login(username, password);
-      localStorage.setItem('splitdumb_auth', JSON.stringify(result.user));
-      if (result.user.role === 'admin') {
-        window.location.href = '/splitdumb/admin';
-      } else {
-        window.location.href = '/splitdumb/';
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    // Check if already logged in via shared auth cookie
+    api.me().then(user => {
+      setAuthUser(user);
+      setChecking(false);
+    }).catch(() => {
+      setAuthUser(null);
+      setChecking(false);
+    });
+  }, []);
 
-  return (
-    <div className="page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-      <div style={{ width: '100%', maxWidth: 320 }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>🔐 Admin Login</h2>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.9rem', marginTop: 8 }}>Required to delete groups, remove members, or delete expenses</p>
-        </div>
+  if (checking) {
+    return <div className="loading"><div className="spinner"></div><p>Checking auth...</p></div>;
+  }
 
-        {error && <div className="error" style={{ margin: '0 0 16px' }}>{error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Username</label>
-            <input
-              className="form-input"
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="admin"
-              autoFocus
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <input
-              className="form-input"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={loading || !username || !password}>
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
+  if (authUser) {
+    // Already logged in
+    return (
+      <div className="page" style={{ textAlign: 'center', paddingTop: 80 }}>
+        <p style={{ fontSize: '1.1rem', marginBottom: 16 }}>✅ Logged in as <strong>{authUser.username}</strong> ({authUser.role})</p>
+        <a href="/splitdumb/admin" className="btn btn-primary" style={{ display: 'inline-block', textDecoration: 'none' }}>Go to Admin Panel</a>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // Not logged in — redirect to shared auth
+  const authUrl = 'https://auth.johnzhong.win/login?from=' + encodeURIComponent(window.location.origin + '/splitdumb/admin');
+  window.location.href = authUrl;
+  return <div className="loading"><p>Redirecting to login...</p></div>;
 }
 
 export default Login;

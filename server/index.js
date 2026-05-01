@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
-const { createSession, verifyLogin, requireAdmin, requireAuth, COOKIE_NAME, parseCookies, verifySession } = require('./auth');
+const { COOKIE_NAME, AUTH_SERVICE, requireAdmin, requireAuth, parseCookies, verifySession } = require('./auth');
 const { init: initDb, prepare, exec: execDb, saveDb, markDirty } = require('./db');
 
 const app = express();
@@ -137,26 +137,7 @@ function checkAdminToken(req, res, next) {
 }
 
 // ==================== AUTH ROUTES ====================
-
-app.post('/api/v1/auth/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
-  }
-  const user = await verifyLogin(username, password);
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-  const token = await createSession(user);
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=${60*60*24*7}; Path=/`);
-  res.json({ ok: true, user: { username: user.username, role: user.role } });
-});
-
-app.post('/api/v1/auth/logout', (req, res) => {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`);
-  res.json({ ok: true });
-});
-
+// Login/logout handled by auth.johnzhong.win — redirect there
 app.get('/api/v1/auth/me', requireAuth, (req, res) => {
   res.json({ username: req.user.username, role: req.user.role });
 });

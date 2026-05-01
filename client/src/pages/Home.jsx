@@ -80,7 +80,7 @@ function Home() {
         )}
         {!authUser && (
           <div style={{ marginTop: 12 }}>
-            <a href="/splitdumb/login" style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>🔐 Admin Login</a>
+            <a href={`https://auth.johnzhong.win/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`} style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>🔐 Admin Login</a>
           </div>
         )}
       </div>

@@ -1,69 +1,14 @@
-const { SignJWT, jwtVerify } = require('jose');
-const { compareSync, hashSync } = require('bcryptjs');
+const { jwtVerify } = require('jose');
 
-const SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || 'atc-dashboard-secret-change-me-in-production'
-);
+// Use the SAME secret as auth.johnzhong.win shared auth service
+const AUTH_SECRET = process.env.AUTH_SECRET || 'shared-auth-secret-prod-2026';
+const SECRET = new TextEncoder().encode(AUTH_SECRET);
 
-const COOKIE_NAME = 'splitdumb_session';
+// Shared auth service URL
+const AUTH_SERVICE = process.env.AUTH_SERVICE || 'https://auth.johnzhong.win';
 
-// Decode dot-format bcrypt hash (same as ATC)
-// "2b10xxxx.yyyy.zzzz" → "$2b$10$xxxxyyyyzzzz"
-function decodeHash(dotFormat) {
-  if (dotFormat.startsWith('$')) return dotFormat;
-  const version = dotFormat.slice(0, 2);
-  const cost = dotFormat.slice(2, 4);
-  const body = dotFormat.slice(4);
-  return `$${version}$${cost}$${body}`;
-}
-
-function getUsers() {
-  const users = new Map();
-  const adminHash = process.env.AUTH_ADMIN_HASH;
-  if (adminHash) {
-    users.set(process.env.AUTH_ADMIN_USER || 'admin', {
-      passwordHash: decodeHash(adminHash),
-      role: 'admin',
-    });
-  }
-  const viewerHash = process.env.AUTH_VIEWER_HASH;
-  if (viewerHash) {
-    users.set(process.env.AUTH_VIEWER_USER || 'viewer', {
-      passwordHash: decodeHash(viewerHash),
-      role: 'viewer',
-    });
-  }
-  // Fallback for local dev
-  if (users.size === 0) {
-    users.set('admin', { passwordHash: hashSync('admin', 10), role: 'admin' });
-  }
-  return users;
-}
-
-async function verifyLogin(username, password) {
-  const users = getUsers();
-  const user = users.get(username);
-  if (!user) return null;
-  if (!compareSync(password, user.passwordHash)) return null;
-  return { username, role: user.role };
-}
-
-async function createSession(user) {
-  return new SignJWT({ username: user.username, role: user.role })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('7d')
-    .sign(SECRET);
-}
-
-async function verifySession(token) {
-  try {
-    const { payload } = await jwtVerify(token, SECRET);
-    return { username: payload.username, role: payload.role };
-  } catch {
-    return null;
-  }
-}
+// The shared auth service uses this cookie name on .johnzhong.win
+const COOKIE_NAME = 'johnzhong_session';
 
 function parseCookies(cookieHeader) {
   const cookies = {};
@@ -75,16 +20,25 @@ function parseCookies(cookieHeader) {
   return cookies;
 }
 
-// Express middleware: require admin role
+async function verifySession(token) {
+  try {
+    const { payload } = await jwtVerify(token, SECRET);
+    return { username: payload.username, role: payload.role };
+  } catch {
+    return null;
+  }
+}
+
+// Express middleware: require admin role (from shared cookie)
 function requireAdmin(req, res, next) {
   const cookies = parseCookies(req.headers.cookie);
   const token = cookies[COOKIE_NAME];
   if (!token) {
-    return res.status(401).json({ error: 'Authentication required' });
+    return res.status(401).json({ error: 'Authentication required', authUrl: `${AUTH_SERVICE}/login` });
   }
   verifySession(token).then(user => {
     if (!user) {
-      return res.status(401).json({ error: 'Invalid or expired session' });
+      return res.status(401).json({ error: 'Invalid or expired session', authUrl: `${AUTH_SERVICE}/login` });
     }
     if (user.role !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
@@ -92,33 +46,32 @@ function requireAdmin(req, res, next) {
     req.user = user;
     next();
   }).catch(() => {
-    res.status(401).json({ error: 'Authentication required' });
+    res.status(401).json({ error: 'Authentication required', authUrl: `${AUTH_SERVICE}/login` });
   });
 }
 
-// Express middleware: require any authenticated user (admin or viewer)
+// Express middleware: require any authenticated user
 function requireAuth(req, res, next) {
   const cookies = parseCookies(req.headers.cookie);
   const token = cookies[COOKIE_NAME];
   if (!token) {
-    return res.status(401).json({ error: 'Authentication required' });
+    return res.status(401).json({ error: 'Authentication required', authUrl: `${AUTH_SERVICE}/login` });
   }
   verifySession(token).then(user => {
     if (!user) {
-      return res.status(401).json({ error: 'Invalid or expired session' });
+      return res.status(401).json({ error: 'Invalid or expired session', authUrl: `${AUTH_SERVICE}/login` });
     }
     req.user = user;
     next();
   }).catch(() => {
-    res.status(401).json({ error: 'Authentication required' });
+    res.status(401).json({ error: 'Authentication required', authUrl: `${AUTH_SERVICE}/login` });
   });
 }
 
 module.exports = {
   COOKIE_NAME,
   SECRET,
-  verifyLogin,
-  createSession,
+  AUTH_SERVICE,
   verifySession,
   parseCookies,
   requireAdmin,

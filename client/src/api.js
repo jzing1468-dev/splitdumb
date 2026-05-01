@@ -12,12 +12,9 @@ async function request(url, options = {}) {
 }
 
 export const api = {
-  // Auth
-  login: (username, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
-  logout: () => request('/auth/logout', { method: 'POST' }),
+  // Auth — login handled by auth.johnzhong.win
   me: () => request('/auth/me'),
   adminGroups: () => request('/admin/groups'),
-
   createGroup: (name, passcode) => request('/groups', { method: 'POST', body: JSON.stringify({ name, passcode }) }),
   getGroup: (code) => request(`/groups/${code}`),
   deleteGroup: (code, adminToken) => request(`/groups/${code}`, {
