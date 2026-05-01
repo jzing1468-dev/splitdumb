@@ -153,6 +153,17 @@ async function init() {
     // Column already exists
   }
 
+  // Migration: add date_range_start, date_range_end, nights_data columns for nights split
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN date_range_start TEXT');
+  } catch (e) { /* Column already exists */ }
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN date_range_end TEXT');
+  } catch (e) { /* Column already exists */ }
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN nights_data TEXT');
+  } catch (e) { /* Column already exists */ }
+
   ready = true;
   console.log('Database ready');
   return db;

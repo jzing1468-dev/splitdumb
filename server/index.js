@@ -313,7 +313,7 @@ app.delete('/api/v1/groups/:code/members/:id', adminOrToken, (req, res) => {
 app.post('/api/v1/groups/:code/expenses', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, date, created_by } = req.body;
+  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, shares: sharesInput, nights: nightsInput, date, date_range_start, date_range_end, created_by } = req.body;
 
   if (!description || description.trim().length === 0) return res.status(400).json({ error: 'Description is required' });
   if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount must be greater than $0' });
@@ -348,6 +348,69 @@ app.post('/api/v1/groups/:code/expenses', (req, res) => {
     splitMemberIds.forEach((mid, i) => {
       shares[mid] = sharePerPerson + (i < Math.round(remainder * 100) ? 0.01 : 0);
     });
+  } else if (type === 'shares') {
+    if (!sharesInput) return res.status(400).json({ error: 'shares required for shares split type' });
+    const totalShares = Object.entries(sharesInput)
+      .filter(([mid]) => splitMemberIds.includes(mid))
+      .reduce((sum, [, s]) => sum + Number(s), 0);
+    if (totalShares <= 0) return res.status(400).json({ error: 'Total shares must be greater than 0' });
+    let totalAllocated = 0;
+    const included = Object.entries(sharesInput).filter(([mid]) => splitMemberIds.includes(mid));
+    included.forEach(([mid, s], i) => {
+      const shareAmt = Math.round((Number(s) / totalShares) * roundedAmount * 100) / 100;
+      shares[mid] = shareAmt;
+      totalAllocated += shareAmt;
+    });
+    // Distribute rounding remainder
+    const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
+    if (remainder > 0) {
+      const sortedByShareDesc = [...included].sort((a, b) => Number(b[1]) - Number(a[1]));
+      for (let i = 0; i < Math.round(remainder * 100) && i < sortedByShareDesc.length; i++) {
+        shares[sortedByShareDesc[i][0]] = Math.round((shares[sortedByShareDesc[i][0]] + 0.01) * 100) / 100;
+      }
+    }
+  } else if (type === 'nights') {
+    if (!nightsInput) return res.status(400).json({ error: 'nights required for nights split type' });
+    if (!date_range_start || !date_range_end) return res.status(400).json({ error: 'date_range_start and date_range_end required for nights split type' });
+    
+    const startDate = new Date(date_range_start);
+    const endDate = new Date(date_range_end);
+    const numNights = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24));
+    if (numNights <= 0) return res.status(400).json({ error: 'date range must span at least 1 night' });
+    
+    const perNightCost = roundedAmount / numNights;
+    let totalAllocated = 0;
+    const nightShares = {}; // mid -> total share
+    
+    // Calculate for each night
+    for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      const presentIds = [];
+      for (const [mid, dates] of Object.entries(nightsInput)) {
+        if (splitMemberIds.includes(mid) && dates.includes(dateStr)) {
+          presentIds.push(mid);
+        }
+      }
+      if (presentIds.length === 0) continue; // Skip nights with nobody
+      const sharePerPerson = perNightCost / presentIds.length;
+      presentIds.forEach(mid => {
+        nightShares[mid] = (nightShares[mid] || 0) + sharePerPerson;
+      });
+    }
+    
+    // Round and distribute remainder
+    for (const mid of Object.keys(nightShares)) {
+      nightShares[mid] = Math.round(nightShares[mid] * 100) / 100;
+    }
+    let sumShares = Object.values(nightShares).reduce((s, v) => s + v, 0);
+    const roundingRemainder = Math.round((roundedAmount - sumShares) * 100) / 100;
+    if (roundingRemainder > 0) {
+      const sorted = Object.entries(nightShares).sort((a, b) => b[1] - a[1]);
+      for (let i = 0; i < Math.round(roundingRemainder * 100) && i < sorted.length; i++) {
+        nightShares[sorted[i][0]] = Math.round((nightShares[sorted[i][0]] + 0.01) * 100) / 100;
+      }
+    }
+    Object.assign(shares, nightShares);
   } else if (type === 'exact') {
     if (!exact_amounts) return res.status(400).json({ error: 'exact_amounts required for exact split type' });
     const total = Object.values(exact_amounts).reduce((sum, v) => sum + v, 0);
@@ -378,10 +441,13 @@ app.post('/api/v1/groups/:code/expenses', (req, res) => {
 
   const id = uuidv4();
   const expenseDate = date || new Date().toISOString().split('T')[0];
+  const nightsDataJson = type === 'nights' ? JSON.stringify(nightsInput) : null;
+  const drStart = type === 'nights' ? date_range_start : null;
+  const drEnd = type === 'nights' ? date_range_end : null;
 
   try {
-    prepare('INSERT INTO expenses (id, group_id, description, amount, payer_id, split_type, date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, group.id, description.trim(), roundedAmount, payer_id, type, expenseDate, created_by || null);
+    prepare('INSERT INTO expenses (id, group_id, description, amount, payer_id, split_type, date, created_by, date_range_start, date_range_end, nights_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, group.id, description.trim(), roundedAmount, payer_id, type, expenseDate, created_by || null, drStart, drEnd, nightsDataJson);
     for (const [mid, share] of Object.entries(shares)) {
       prepare('INSERT INTO splits (expense_id, member_id, share) VALUES (?, ?, ?)').run(id, mid, share);
     }
@@ -403,7 +469,7 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
   const expense = prepare('SELECT * FROM expenses WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
 
-  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, date } = req.body;
+  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, shares: sharesInput, nights: nightsInput, date, date_range_start, date_range_end } = req.body;
 
   // Build update fields
   const updates = [];
@@ -438,6 +504,9 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
 
   let needsResplit = split_type || amount || split_among;
   let newSplits = null;
+  let nightsDataJson = null;
+  let drStart = null;
+  let drEnd = null;
 
   if (needsResplit) {
     let splitMemberIds;
@@ -462,6 +531,66 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
       splitMemberIds.forEach((mid, i) => {
         newSplits[mid] = sharePerPerson + (i < Math.round(remainder * 100) ? 0.01 : 0);
       });
+    } else if (newType === 'shares') {
+      if (!sharesInput) return res.status(400).json({ error: 'shares required for shares split type' });
+      const totalShares = Object.entries(sharesInput)
+        .filter(([mid]) => splitMemberIds.includes(mid))
+        .reduce((sum, [, s]) => sum + Number(s), 0);
+      if (totalShares <= 0) return res.status(400).json({ error: 'Total shares must be greater than 0' });
+      let totalAllocated = 0;
+      const included = Object.entries(sharesInput).filter(([mid]) => splitMemberIds.includes(mid));
+      included.forEach(([mid, s]) => {
+        const shareAmt = Math.round((Number(s) / totalShares) * roundedAmount * 100) / 100;
+        newSplits[mid] = shareAmt;
+        totalAllocated += shareAmt;
+      });
+      const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
+      if (remainder > 0) {
+        const sortedByShareDesc = [...included].sort((a, b) => Number(b[1]) - Number(a[1]));
+        for (let i = 0; i < Math.round(remainder * 100) && i < sortedByShareDesc.length; i++) {
+          newSplits[sortedByShareDesc[i][0]] = Math.round((newSplits[sortedByShareDesc[i][0]] + 0.01) * 100) / 100;
+        }
+      }
+    } else if (newType === 'nights') {
+      if (!nightsInput) return res.status(400).json({ error: 'nights required for nights split type' });
+      const drs = date_range_start || expense.date_range_start;
+      const dre = date_range_end || expense.date_range_end;
+      if (!drs || !dre) return res.status(400).json({ error: 'date_range_start and date_range_end required for nights split type' });
+      drStart = drs;
+      drEnd = dre;
+      const startDate = new Date(drs);
+      const endDate = new Date(dre);
+      const numNights = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24));
+      if (numNights <= 0) return res.status(400).json({ error: 'date range must span at least 1 night' });
+      const perNightCost = roundedAmount / numNights;
+      const nightShares = {};
+      for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const presentIds = [];
+        for (const [mid, dates] of Object.entries(nightsInput)) {
+          if (splitMemberIds.includes(mid) && dates.includes(dateStr)) {
+            presentIds.push(mid);
+          }
+        }
+        if (presentIds.length === 0) continue;
+        const sharePerPerson = perNightCost / presentIds.length;
+        presentIds.forEach(mid => {
+          nightShares[mid] = (nightShares[mid] || 0) + sharePerPerson;
+        });
+      }
+      for (const mid of Object.keys(nightShares)) {
+        nightShares[mid] = Math.round(nightShares[mid] * 100) / 100;
+      }
+      let sumShares = Object.values(nightShares).reduce((s, v) => s + v, 0);
+      const roundingRemainder = Math.round((roundedAmount - sumShares) * 100) / 100;
+      if (roundingRemainder > 0) {
+        const sorted = Object.entries(nightShares).sort((a, b) => b[1] - a[1]);
+        for (let i = 0; i < Math.round(roundingRemainder * 100) && i < sorted.length; i++) {
+          nightShares[sorted[i][0]] = Math.round((nightShares[sorted[i][0]] + 0.01) * 100) / 100;
+        }
+      }
+      Object.assign(newSplits, nightShares);
+      nightsDataJson = JSON.stringify(nightsInput);
     } else if (newType === 'exact') {
       if (!exact_amounts) return res.status(400).json({ error: 'exact_amounts required' });
       const total = Object.values(exact_amounts).reduce((sum, v) => sum + v, 0);
@@ -481,6 +610,23 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
     }
     updates.push('split_type = ?');
     values.push(newType);
+    
+    // Handle nights-specific columns
+    if (nightsDataJson) {
+      updates.push('nights_data = ?');
+      values.push(nightsDataJson);
+      updates.push('date_range_start = ?');
+      values.push(drStart);
+      updates.push('date_range_end = ?');
+      values.push(drEnd);
+    } else if (newType !== 'nights') {
+      updates.push('nights_data = ?');
+      values.push(null);
+      updates.push('date_range_start = ?');
+      values.push(null);
+      updates.push('date_range_end = ?');
+      values.push(null);
+    }
   }
 
   try {

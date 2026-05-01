@@ -243,7 +243,8 @@ function Group() {
                   <div className="expense-left">
                     <div className="expense-desc">{e.description}</div>
                     <div className="expense-meta">
-                      {e.payer_name} paid · {e.split_type} · {e.date}
+                      {e.payer_name} paid · {{ equal: 'Equal', shares: 'Shares', nights: 'Nights', exact: 'Exact', percentage: '%' }[e.split_type] || e.split_type} · {e.date}
+                      {e.split_type === 'nights' && e.date_range_start && ` (${new Date(e.date_range_start+'T12:00:00').toLocaleDateString('en-US', {month:'short',day:'numeric'})} → ${new Date(e.date_range_end+'T12:00:00').toLocaleDateString('en-US', {month:'short',day:'numeric'})})`}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
