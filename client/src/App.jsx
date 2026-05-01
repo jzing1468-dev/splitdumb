@@ -12,7 +12,7 @@ function App() {
     <BrowserRouter basename={BASE_PATH}>
       <div className="app">
         <header className="app-header">
-          <h1 className="app-title">💸 SplitDumb</h1>
+          <h1 className="app-title"><a href="/splitdumb/" style={{ color: 'inherit', textDecoration: 'none' }}>💸 SplitDumb</a></h1>
         </header>
         <main className="app-main">
           <Routes>

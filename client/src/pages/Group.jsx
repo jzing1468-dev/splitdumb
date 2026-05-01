@@ -14,6 +14,7 @@ function Group() {
   const [newMember, setNewMember] = useState('');
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
   const [showAddSettlement, setShowAddSettlement] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -88,10 +89,9 @@ function Group() {
   };
 
   const deleteExpense = async (id) => {
-    if (!hasAdmin) return;
     if (!confirm('Delete this expense?')) return;
     try {
-      await api.deleteExpense(code, id, adminToken || undefined);
+      await api.deleteExpense(code, id);
       fetchGroup();
     } catch (err) {
       setError(err.message);
@@ -248,7 +248,8 @@ function Group() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="expense-amount">${e.amount.toFixed(2)}</div>
-                    {hasAdmin && <button className="delete-btn" onClick={() => deleteExpense(e.id)}>🗑</button>}
+                    <button className="delete-btn" onClick={() => { setEditingExpense(e); setShowAddExpense(true); }}>✏️</button>
+                    <button className="delete-btn" onClick={() => deleteExpense(e.id)}>🗑</button>
                   </div>
                 </div>
               ))}
@@ -334,8 +335,9 @@ function Group() {
         <AddExpense
           group={group}
           code={code}
-          onClose={() => setShowAddExpense(false)}
-          onSaved={() => { setShowAddExpense(false); fetchGroup(); }}
+          expense={editingExpense}
+          onClose={() => { setShowAddExpense(false); setEditingExpense(null); }}
+          onSaved={() => { setShowAddExpense(false); setEditingExpense(null); fetchGroup(); }}
         />
       )}
 

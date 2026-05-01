@@ -1,15 +1,26 @@
 import { useState } from 'react';
 import { api } from '../api';
 
-function AddExpense({ group, code, onClose, onSaved }) {
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
-  const [payerId, setPayerId] = useState(group.members?.[0]?.id || '');
-  const [splitType, setSplitType] = useState('equal');
-  const [splitAmong, setSplitAmong] = useState(group.members?.map(m => m.id) || []);
-  const [exactAmounts, setExactAmounts] = useState({});
-  const [percentages, setPercentages] = useState({});
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+function AddExpense({ group, code, expense, onClose, onSaved }) {
+  const isEditing = !!expense;
+  const [description, setDescription] = useState(expense?.description || '');
+  const [amount, setAmount] = useState(expense?.amount?.toString() || '');
+  const [payerId, setPayerId] = useState(expense?.payer_id || group.members?.[0]?.id || '');
+  const [splitType, setSplitType] = useState(expense?.split_type || 'equal');
+  const [splitAmong, setSplitAmong] = useState(
+    expense ? expense.splits?.map(s => s.member_id) || [] : group.members?.map(m => m.id) || []
+  );
+  const [exactAmounts, setExactAmounts] = useState(
+    expense && expense.split_type === 'exact'
+      ? Object.fromEntries(expense.splits?.map(s => [s.member_id, s.share.toString()])) || {}
+      : {}
+  );
+  const [percentages, setPercentages] = useState(
+    expense && expense.split_type === 'percentage'
+      ? Object.fromEntries(expense.splits?.map(s => [s.member_id, ((s.share / expense.amount) * 100).toFixed(1)])) || {}
+      : {}
+  );
+  const [date, setDate] = useState(expense?.date || new Date().toISOString().split('T')[0]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -58,7 +69,11 @@ function AddExpense({ group, code, onClose, onSaved }) {
 
     setLoading(true);
     try {
-      await api.addExpense(code, payload);
+      if (isEditing) {
+        await api.editExpense(code, expense.id, payload);
+      } else {
+        await api.addExpense(code, payload);
+      }
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -87,7 +102,7 @@ function AddExpense({ group, code, onClose, onSaved }) {
         padding: 24
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Add Expense</h2>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>{isEditing ? 'Edit Expense' : 'Add Expense'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: '1.5rem', cursor: 'pointer' }}>✕</button>
         </div>
 
@@ -185,7 +200,7 @@ function AddExpense({ group, code, onClose, onSaved }) {
           </div>
 
           <button className="btn btn-primary" type="submit" disabled={loading} style={{ marginTop: 8 }}>
-            {loading ? 'Saving...' : 'Add Expense'}
+            {loading ? 'Saving...' : isEditing ? 'Update Expense' : 'Add Expense'}
           </button>
         </form>
       </div>

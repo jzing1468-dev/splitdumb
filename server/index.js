@@ -395,7 +395,116 @@ app.post('/api/v1/groups/:code/expenses', (req, res) => {
   }
 });
 
-app.delete('/api/v1/groups/:code/expenses/:id', adminOrToken, (req, res) => {
+// Edit expense (anyone can edit)
+app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const expense = prepare('SELECT * FROM expenses WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  if (!expense) return res.status(404).json({ error: 'Expense not found' });
+
+  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, date } = req.body;
+
+  // Build update fields
+  const updates = [];
+  const values = [];
+
+  if (description !== undefined) {
+    if (description.trim().length === 0) return res.status(400).json({ error: 'Description cannot be empty' });
+    updates.push('description = ?');
+    values.push(description.trim());
+  }
+  if (amount !== undefined) {
+    if (amount <= 0) return res.status(400).json({ error: 'Amount must be > 0' });
+    updates.push('amount = ?');
+    values.push(Math.round(amount * 100) / 100);
+  }
+  if (payer_id !== undefined) {
+    const payer = prepare('SELECT id FROM members WHERE id = ? AND group_id = ?').get(payer_id, group.id);
+    if (!payer) return res.status(400).json({ error: 'Payer must be a member' });
+    updates.push('payer_id = ?');
+    values.push(payer_id);
+  }
+  if (date !== undefined) {
+    updates.push('date = ?');
+    values.push(date);
+  }
+
+  // If amount, split_type, or split_among changed, recalculate splits
+  const newAmount = amount !== undefined ? amount : expense.amount;
+  const newType = split_type || expense.split_type;
+  const members = prepare('SELECT id FROM members WHERE group_id = ?').all(group.id);
+  const memberIds = new Set(members.map(m => m.id));
+
+  let needsResplit = split_type || amount || split_among;
+  let newSplits = null;
+
+  if (needsResplit) {
+    let splitMemberIds;
+    if (split_among && split_among.length > 0) {
+      for (const mid of split_among) {
+        if (!memberIds.has(mid)) return res.status(400).json({ error: `Member ${mid} not in group` });
+      }
+      splitMemberIds = split_among;
+    } else {
+      const existingSplits = prepare('SELECT member_id FROM splits WHERE expense_id = ?').all(expense.id);
+      splitMemberIds = existingSplits.map(s => s.member_id);
+    }
+    if (splitMemberIds.length === 0) return res.status(400).json({ error: 'At least one person must be in the split' });
+
+    const roundedAmount = Math.round(newAmount * 100) / 100;
+    newSplits = {};
+
+    if (newType === 'equal') {
+      const sharePerPerson = Math.round((roundedAmount / splitMemberIds.length) * 100) / 100;
+      const totalAllocated = Math.round(sharePerPerson * splitMemberIds.length * 100) / 100;
+      const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
+      splitMemberIds.forEach((mid, i) => {
+        newSplits[mid] = sharePerPerson + (i < Math.round(remainder * 100) ? 0.01 : 0);
+      });
+    } else if (newType === 'exact') {
+      if (!exact_amounts) return res.status(400).json({ error: 'exact_amounts required' });
+      const total = Object.values(exact_amounts).reduce((sum, v) => sum + v, 0);
+      if (Math.abs(total - roundedAmount) > 0.01) return res.status(400).json({ error: `Amounts must equal total ($${roundedAmount.toFixed(2)})` });
+      for (const [mid, val] of Object.entries(exact_amounts)) {
+        if (!splitMemberIds.includes(mid)) return res.status(400).json({ error: `Member ${mid} not in split` });
+        newSplits[mid] = val;
+      }
+    } else if (newType === 'percentage') {
+      if (!percentages) return res.status(400).json({ error: 'percentages required' });
+      const totalPct = Object.values(percentages).reduce((sum, v) => sum + v, 0);
+      if (Math.abs(totalPct - 100) > 0.01) return res.status(400).json({ error: 'Percentages must total 100%' });
+      for (const [mid, pct] of Object.entries(percentages)) {
+        if (!splitMemberIds.includes(mid)) return res.status(400).json({ error: `Member ${mid} not in split` });
+        newSplits[mid] = Math.round(roundedAmount * pct / 100 * 100) / 100;
+      }
+    }
+    updates.push('split_type = ?');
+    values.push(newType);
+  }
+
+  try {
+    if (updates.length > 0) {
+      prepare(`UPDATE expenses SET ${updates.join(', ')} WHERE id = ?`).run(...values, expense.id);
+    }
+    if (newSplits) {
+      prepare('DELETE FROM splits WHERE expense_id = ?').run(expense.id);
+      for (const [mid, share] of Object.entries(newSplits)) {
+        prepare('INSERT INTO splits (expense_id, member_id, share) VALUES (?, ?, ?)').run(expense.id, mid, share);
+      }
+    }
+    saveDb();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to update expense' });
+  }
+
+  const updated = prepare('SELECT * FROM expenses WHERE id = ?').get(expense.id);
+  const splits = prepare('SELECT s.member_id, s.share, m.name as member_name FROM splits s JOIN members m ON s.member_id = m.id WHERE s.expense_id = ?').all(expense.id);
+  res.json({ ...updated, splits });
+});
+
+app.delete('/api/v1/groups/:code/expenses/:id', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   const expense = prepare('SELECT * FROM expenses WHERE id = ? AND group_id = ?').get(req.params.id, group.id);

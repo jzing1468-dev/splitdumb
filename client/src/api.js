@@ -37,10 +37,7 @@ export const api = {
 
   addExpense: (code, data) => request(`/groups/${code}/expenses`, { method: 'POST', body: JSON.stringify(data) }),
   editExpense: (code, id, data) => request(`/groups/${code}/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteExpense: (code, id, adminToken) => request(`/groups/${code}/expenses/${id}`, {
-    method: 'DELETE',
-    headers: adminToken ? { 'X-Admin-Token': adminToken } : undefined,
-  }),
+  deleteExpense: (code, id) => request(`/groups/${code}/expenses/${id}`, { method: 'DELETE' }),
 
   addSettlement: (code, data) => request(`/groups/${code}/settlements`, { method: 'POST', body: JSON.stringify(data) }),
   confirmSettlement: (code, id, status) => request(`/groups/${code}/settlements/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
