@@ -17,6 +17,10 @@ function Group() {
   const [showAddSettlement, setShowAddSettlement] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Admin state
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminToken, setAdminToken] = useState('');
+
   const fetchGroup = useCallback(async () => {
     try {
       const data = await api.getGroup(code);
@@ -30,6 +34,19 @@ function Group() {
   }, [code]);
 
   useEffect(() => { fetchGroup(); }, [fetchGroup]);
+
+  // Check admin status
+  useEffect(() => {
+    const auth = JSON.parse(localStorage.getItem('splitdumb_auth') || 'null');
+    if (auth?.role === 'admin') setIsAdmin(true);
+    // Check URL for admin_token (from share link)
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('admin');
+    if (token) setAdminToken(token);
+  }, []);
+
+  const hasAdmin = isAdmin || adminToken;
+  const adminHeaders = adminToken ? { 'X-Admin-Token': adminToken } : {};
 
   // Save group to localStorage
   useEffect(() => {
@@ -54,9 +71,11 @@ function Group() {
     }
   };
 
-  const removeMember = async (id) => {
+  const removeMember = async (id, name) => {
+    if (!hasAdmin) return;
+    if (!confirm(`Remove ${name}? This will delete their expenses and splits.`)) return;
     try {
-      await api.removeMember(code, id);
+      await api.removeMember(code, id, adminToken || undefined, true);
       fetchGroup();
     } catch (err) {
       setError(err.message);
@@ -64,8 +83,10 @@ function Group() {
   };
 
   const deleteExpense = async (id) => {
+    if (!hasAdmin) return;
+    if (!confirm('Delete this expense?')) return;
     try {
-      await api.deleteExpense(code, id);
+      await api.deleteExpense(code, id, adminToken || undefined);
       fetchGroup();
     } catch (err) {
       setError(err.message);
@@ -107,12 +128,28 @@ function Group() {
   return (
     <div className="page">
       <div className="group-header">
-        <div className="group-name">{group.name}</div>
-        <div className="group-code">
-          Code: <code>{group.code}</code>
-          <button className="copy-btn" onClick={copyCode}>
-            {copied ? '✓ Copied!' : '🔗 Share'}
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div className="group-name">{group.name}</div>
+            <div className="group-code">
+              Code: <code>{group.code}</code>
+              <button className="copy-btn" onClick={copyCode}>
+                {copied ? '✓ Copied!' : '🔗 Share'}
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {isAdmin && <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'var(--primary)', color: 'white', borderRadius: 4 }}>ADMIN</span>}
+            {hasAdmin && (
+              <button className="btn btn-danger btn-sm" style={{ width: 'auto', fontSize: '0.75rem' }} onClick={async () => {
+                if (!confirm('Delete this entire group? This cannot be undone.')) return;
+                try {
+                  await api.deleteGroup(code, adminToken || undefined);
+                  navigate('/splitdumb/');
+                } catch (err) { setError(err.message); }
+              }}>Delete Group</button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -124,7 +161,7 @@ function Group() {
             <span key={m.id} className="member-chip" style={{ background: m.color + '22', borderColor: m.color }}>
               <span className="member-dot" style={{ background: m.color }}></span>
               {m.name}
-              <button className="delete-btn" onClick={() => removeMember(m.id)} style={{ padding: 0, fontSize: '0.7rem' }}>✕</button>
+              {hasAdmin && <button className="delete-btn" onClick={() => removeMember(m.id, m.name)} style={{ padding: 0, fontSize: '0.7rem' }}>✕</button>}
             </span>
           ))}
         </div>
@@ -206,7 +243,7 @@ function Group() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="expense-amount">${e.amount.toFixed(2)}</div>
-                    <button className="delete-btn" onClick={() => deleteExpense(e.id)}>🗑</button>
+                    {hasAdmin && <button className="delete-btn" onClick={() => deleteExpense(e.id)}>🗑</button>}
                   </div>
                 </div>
               ))}
