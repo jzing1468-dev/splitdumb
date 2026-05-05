@@ -202,10 +202,13 @@ function App() {
             className="btn btn-secondary"
             style={{ marginTop: 12 }}
             onClick={() => {
+              const html = '<!DOCTYPE html>' + document.documentElement.outerHTML;
+              const blob = new Blob([html], { type: 'text/html' });
               const a = document.createElement('a');
-              a.href = window.location.origin + window.location.pathname;
+              a.href = URL.createObjectURL(blob);
               a.download = 'splitdumb-p2p.html';
               a.click();
+              URL.revokeObjectURL(a.href);
             }}
           >
             ⬇ Download SplitDumb P2P
