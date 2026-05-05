@@ -99,7 +99,7 @@ function GroupPage({
     );
   }
 
-  const shareUrl = `${window.location.origin}${window.location.pathname}`;
+  const shareUrl = `${window.location.origin}${window.location.pathname}?group=${encodeURIComponent(group.code)}`;
   const copyCode = () => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
   const addMember = async () => {
