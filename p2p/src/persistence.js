@@ -10,9 +10,25 @@ export function persistDoc(doc, groupId) {
   const persistence = new IndexeddbPersistence(`splitdumb-p2p-${groupId}`, doc);
   
   return new Promise((resolve) => {
-    persistence.on('synced', () => {
-      console.log(`IndexedDB synced for group ${groupId}`);
+    // If already synced, resolve immediately
+    if (persistence.synced) {
+      console.log(`IndexedDB already synced for group ${groupId}`);
       resolve();
-    });
+      return;
+    }
+    
+    // Wait for synced event, with timeout fallback
+    let resolved = false;
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        console.log(`IndexedDB ready for group ${groupId}`);
+        resolve();
+      }
+    };
+    
+    persistence.on('synced', done);
+    // Fallback: don't hang forever if synced event never fires
+    setTimeout(done, 3000);
   });
 }
