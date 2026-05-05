@@ -1,14 +1,14 @@
 const { jwtVerify } = require('jose');
 
-// Use the SAME secret as auth.johnzhong.win shared auth service
-const AUTH_SECRET = process.env.AUTH_SECRET || 'shared-auth-secret-prod-2026';
+const AUTH_SECRET = process.env.AUTH_SECRET;
+if (!AUTH_SECRET) throw new Error('AUTH_SECRET env var is required');
 const SECRET = new TextEncoder().encode(AUTH_SECRET);
 
-// Shared auth service URL
-const AUTH_SERVICE = process.env.AUTH_SERVICE || 'https://auth.johnzhong.win';
+// Auth service URL — must be configured via AUTH_SERVICE env var
+const AUTH_SERVICE = process.env.AUTH_SERVICE || 'https://auth.example.com';
 
-// The shared auth service uses this cookie name on .johnzhong.win
-const COOKIE_NAME = 'johnzhong_session';
+// Auth service cookie name (configurable domain)
+const COOKIE_NAME = 'splitdumb_session';
 
 function parseCookies(cookieHeader) {
   const cookies = {};

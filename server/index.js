@@ -3,10 +3,97 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const { COOKIE_NAME, AUTH_SERVICE, requireAdmin, requireAuth, parseCookies, verifySession } = require('./auth');
 const { init: initDb, prepare, exec: execDb, saveDb, markDirty } = require('./db');
+const { calculateSplits, buildNightsData, CATEGORIES } = require('./splitCalc');
+const { calculateSimplifiedDebts, nameToColor, nextColorForGroup } = require('@splitdumb/core');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Multer config for receipt uploads
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${req.params.id}-${Date.now()}${ext}`);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp|pdf/;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const mime = file.mimetype;
+    if (allowed.test(ext) || mime.startsWith('image/') || mime === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only images and PDFs allowed'));
+    }
+  },
+});
+
+// ---- Actor & Audit ----
+
+// Resolve X-Member-Id → req.actor
+function resolveActor(req, res, next) {
+  const memberId = req.headers['x-member-id'];
+  if (!memberId) { req.actor = null; return next(); }
+  // Delayed lookup: we need group context. Do it in route handler.
+  req.actorId = memberId;
+  next();
+}
+
+function auditLog(req, action, entityType, entityId = null, changes = null) {
+  // Lookup actor name from member_id
+  let actorName = null;
+  if (req.actorId) {
+    try {
+      const group = prepare('SELECT id FROM groups WHERE code = ?').get(req.params?.code);
+      if (group) {
+        const m = prepare('SELECT name FROM members WHERE id = ? AND group_id = ?').get(req.actorId, group.id);
+        if (m) actorName = m.name;
+      }
+    } catch {}
+  }
+  const entry = {
+    group_id: null,
+    member_id: req.actorId || null,
+    member_name: actorName,
+    action,
+    entity_type: entityType,
+    entity_id: entityId || null,
+    changes: changes ? JSON.stringify(changes) : null,
+  };
+  if (req.params?.code) {
+    const g = prepare('SELECT id FROM groups WHERE code = ?').get(req.params.code);
+    if (g) entry.group_id = g.id;
+  }
+  try {
+    prepare('INSERT INTO audit_log (group_id, member_id, member_name, action, entity_type, entity_id, changes) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(entry.group_id, entry.member_id, entry.member_name, entry.action, entry.entity_type, entry.entity_id, entry.changes);
+  } catch (e) {
+    console.error('audit_log insert failed:', e.message);
+  }
+}
 
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : true,
+  credentials: true,
+}));
 app.use(express.json());
+app.use(resolveActor);
+
+// Disable caching for all API responses
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // Helper: generate 6-char alphanumeric code
 function generateCode() {
@@ -30,116 +117,43 @@ function generateUniqueCode() {
   throw new Error('Failed to generate unique code');
 }
 
-function nameToColor(name) {
-  const colors = [
-    '#E57373', '#F06292', '#BA68C8', '#9575CD',
-    '#7986CB', '#64B5F6', '#4FC3F7', '#4DD0E1',
-    '#4DB6AC', '#81C784', '#AED581', '#DCE775',
-    '#FFD54F', '#FFB74D', '#FF8A65', '#A1887F'
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
-}
+// nameToColor, nextColorForGroup, calculateSimplifiedDebts are now imported from @splitdumb/core
 
-function calculateSimplifiedDebts(groupId) {
+/**
+ * Server wrapper: gather data from DB, then call core's pure calculateSimplifiedDebts.
+ */
+function calculateSimplifiedDebtsFromDb(groupId) {
   const members = prepare('SELECT id, name FROM members WHERE group_id = ?').all(groupId);
-  const balances = {};
-  members.forEach(m => { balances[m.id] = 0; });
-
-  const expenses = prepare('SELECT id, payer_id, amount FROM expenses WHERE group_id = ?').all(groupId);
-  expenses.forEach(exp => {
-    balances[exp.payer_id] = (balances[exp.payer_id] || 0) + exp.amount;
-    const splits = prepare('SELECT member_id, share FROM splits WHERE expense_id = ?').all(exp.id);
-    splits.forEach(s => {
-      balances[s.member_id] = (balances[s.member_id] || 0) - s.share;
-    });
-  });
-
+  const expenses = prepare('SELECT id, payer_id, amount, payers_data FROM expenses WHERE group_id = ?').all(groupId);
+  const allSplits = prepare(
+    'SELECT s.expense_id, s.member_id, s.share FROM splits s JOIN expenses e ON s.expense_id = e.id WHERE e.group_id = ?'
+  ).all(groupId);
   const settlements = prepare(
     "SELECT from_id, to_id, amount FROM settlements WHERE group_id = ? AND status = 'confirmed'"
   ).all(groupId);
-  settlements.forEach(s => {
-    balances[s.from_id] = (balances[s.from_id] || 0) + s.amount;
-    balances[s.to_id] = (balances[s.to_id] || 0) - s.amount;
-  });
-
-  const creditors = [];
-  const debtors = [];
-  Object.entries(balances).forEach(([id, bal]) => {
-    if (bal > 0.005) creditors.push({ id, amount: Math.round(bal * 100) / 100 });
-    else if (bal < -0.005) debtors.push({ id, amount: Math.round(Math.abs(bal) * 100) / 100 });
-  });
-
-  creditors.sort((a, b) => b.amount - a.amount);
-  debtors.sort((a, b) => b.amount - a.amount);
-
-  const transactions = [];
-  let i = 0, j = 0;
-  while (i < creditors.length && j < debtors.length) {
-    const amount = Math.round(Math.min(creditors[i].amount, debtors[j].amount) * 100) / 100;
-    if (amount > 0.01) {
-      transactions.push({ from: debtors[j].id, to: creditors[i].id, amount });
-    }
-    creditors[i].amount -= amount;
-    debtors[j].amount -= amount;
-    if (creditors[i].amount < 0.01) i++;
-    if (debtors[j].amount < 0.01) j++;
-  }
-
-  const memberMap = {};
-  members.forEach(m => { memberMap[m.id] = m.name; });
-
-  return {
-    balances: Object.fromEntries(
-      Object.entries(balances).map(([id, bal]) => [
-        id,
-        { name: memberMap[id] || 'Unknown', balance: Math.round(bal * 100) / 100 }
-      ])
-    ),
-    transactions: transactions.map(t => ({
-      from: { id: t.from, name: memberMap[t.from] },
-      to: { id: t.to, name: memberMap[t.to] },
-      amount: t.amount
-    }))
-  };
+  return calculateSimplifiedDebts(members, expenses, allSplits, settlements);
 }
 
-// Admin middleware: session cookie OR admin_token header
-function adminOrToken(req, res, next) {
-  const cookies = parseCookies(req.headers.cookie);
-  const token = cookies[COOKIE_NAME];
-  if (token) {
-    return verifySession(token).then(user => {
-      if (user && user.role === 'admin') {
-        req.user = user;
-        return next();
-      }
-      return checkAdminToken(req, res, next);
-    }).catch(() => checkAdminToken(req, res, next));
-  }
-  return checkAdminToken(req, res, next);
-}
-
-function checkAdminToken(req, res, next) {
-  const adminToken = req.headers['x-admin-token'] || req.query.admin_token;
-  if (!adminToken) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  const group = prepare('SELECT id FROM groups WHERE admin_token = ?').get(adminToken);
-  if (!group) {
-    return res.status(403).json({ error: 'Invalid admin token' });
-  }
-  req.adminGroupId = group.id;
-  next();
-}
+// Admin middleware is now requireAdmin (from auth.js) — session cookie only, no per-group tokens
 
 // ==================== AUTH ROUTES ====================
-// Login/logout handled by auth.johnzhong.win — redirect there
+// Login/logout handled by auth service — redirect there
 app.get('/api/v1/auth/me', requireAuth, (req, res) => {
   res.json({ username: req.user.username, role: req.user.role });
+});
+
+// Logout: clear the session cookie (same-origin, reliable in all browsers)
+app.post('/api/v1/auth/logout', (req, res) => {
+  res.setHeader('Set-Cookie', [
+    `splitdumb_session=`,
+    `Domain=${process.env.COOKIE_DOMAIN || '.example.com'}`,
+    `Path=/`,
+    `HttpOnly`,
+    `Secure`,
+    `SameSite=Lax`,
+    `Max-Age=0`,
+  ].join('; '));
+  res.json({ ok: true });
 });
 
 // Admin: list all groups
@@ -153,21 +167,44 @@ app.get('/api/v1/admin/groups', requireAdmin, (req, res) => {
   }
 });
 
+// ==================== AUDIT ROUTES ====================
+
+app.get('/api/v1/groups/:code/audit', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const log = prepare(
+    'SELECT * FROM audit_log WHERE group_id = ? ORDER BY created_at DESC LIMIT ?'
+  ).all(group.id, limit);
+  const parsed = log.map(entry => {
+    try {
+      return { ...entry, changes: entry.changes ? JSON.parse(entry.changes) : null };
+    } catch {
+      return { ...entry, changes: null };
+    }
+  });
+  res.json(parsed);
+});
+
 // ==================== GROUP ROUTES ====================
 
-app.post('/api/v1/groups', (req, res) => {
+app.post('/api/v1/groups', requireAdmin, (req, res) => {
   const { name, passcode } = req.body;
   if (!name || name.trim().length === 0 || name.length > 50) {
     return res.status(400).json({ error: 'Group name must be 1-50 characters' });
   }
   const id = uuidv4();
   const code = generateUniqueCode();
+  // Keep generating admin_token for DB backward compat, but don't return it
   const adminToken = generateCode() + generateCode();
   try {
     prepare('INSERT INTO groups (id, name, code, admin_token, passcode) VALUES (?, ?, ?, ?, ?)')
       .run(id, name.trim(), code, adminToken, passcode || null);
     const group = prepare('SELECT * FROM groups WHERE id = ?').get(id);
-    res.status(201).json({ ...group, admin_token: adminToken });
+    auditLog(req, 'create', 'group', id, { name: name.trim(), code });
+    // Strip admin_token from response
+    const { admin_token, ...safeGroup } = group;
+    res.status(201).json(safeGroup);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create group' });
@@ -178,26 +215,43 @@ app.get('/api/v1/groups/:code', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
+  // Strip admin_token from group response
+  const { admin_token, ...safeGroup } = group;
+
   const members = prepare('SELECT * FROM members WHERE group_id = ?').all(group.id);
   const expenses = prepare(
-    'SELECT e.*, m.name as payer_name FROM expenses e JOIN members m ON e.payer_id = m.id WHERE e.group_id = ? ORDER BY e.created_at DESC'
+    'SELECT e.*, m.name as payer_name, (SELECT COUNT(*) FROM attachments WHERE expense_id = e.id) as attachment_count FROM expenses e JOIN members m ON e.payer_id = m.id WHERE e.group_id = ? ORDER BY e.created_at DESC'
   ).all(group.id);
 
   const expensesWithSplits = expenses.map(exp => {
     const splits = prepare(
       'SELECT s.member_id, s.share, m.name as member_name FROM splits s JOIN members m ON s.member_id = m.id WHERE s.expense_id = ?'
     ).all(exp.id);
-    return { ...exp, splits };
+    let payerDisplay = exp.payer_name;
+    let payerIsMulti = false;
+    if (exp.payers_data) {
+      try {
+        const payers = JSON.parse(exp.payers_data);
+        if (payers.length > 0) {
+          payerIsMulti = true;
+          payerDisplay = payers.map(p => {
+            const m = prepare('SELECT name FROM members WHERE id = ?').get(p.member_id);
+            return m ? `${m.name} ($${Number(p.amount).toFixed(2)})` : '?';
+          }).join(' + ');
+        }
+      } catch {}
+    }
+    return { ...exp, splits, payer_name: payerDisplay, payer_is_multi: payerIsMulti };
   });
 
   const settlements = prepare(
     'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.group_id = ? ORDER BY s.created_at DESC'
   ).all(group.id);
 
-  const debtInfo = calculateSimplifiedDebts(group.id);
+  const debtInfo = calculateSimplifiedDebtsFromDb(group.id);
 
   res.json({
-    ...group,
+    ...safeGroup,
     members,
     expenses: expensesWithSplits,
     settlements,
@@ -206,9 +260,10 @@ app.get('/api/v1/groups/:code', (req, res) => {
   });
 });
 
-app.delete('/api/v1/groups/:code', adminOrToken, (req, res) => {
+app.delete('/api/v1/groups/:code', requireAdmin, (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
+  auditLog(req, 'delete', 'group', group.id, { name: group.name, code: group.code });
   // Delete cascading: settlements, splits, expenses, members, then group
   prepare('DELETE FROM settlements WHERE group_id = ?').run(group.id);
   const expIds = prepare('SELECT id FROM expenses WHERE group_id = ?').all(group.id);
@@ -224,14 +279,18 @@ app.patch('/api/v1/groups/:code', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   const { name, passcode: newPasscode } = req.body;
+  const changes = {};
   try {
     if (name && name.trim().length > 0) {
       prepare('UPDATE groups SET name = ? WHERE id = ?').run(name.trim(), group.id);
+      changes.name = name.trim();
     }
     if (newPasscode !== undefined) {
       prepare('UPDATE groups SET passcode = ? WHERE id = ?').run(newPasscode || null, group.id);
+      changes.passcode = '***';
     }
     saveDb();
+    auditLog(req, 'update', 'group', group.id, changes);
     const updated = prepare('SELECT * FROM groups WHERE id = ?').get(group.id);
     res.json(updated);
   } catch (err) {
@@ -248,8 +307,8 @@ app.post('/api/v1/groups/:code/members', (req, res) => {
   if (!name || name.trim().length === 0 || name.length > 30) {
     return res.status(400).json({ error: 'Member name must be 1-30 characters' });
   }
-  const memberCount = prepare('SELECT COUNT(*) as count FROM members WHERE group_id = ?').get(group.id);
-  if ((memberCount?.count || 0) >= 20) {
+  const memberCountResult = prepare('SELECT COUNT(*) as count FROM members WHERE group_id = ?').get(group.id);
+  if ((memberCountResult?.count || 0) >= 20) {
     return res.status(400).json({ error: 'Maximum 20 members per group' });
   }
   const existing = prepare('SELECT id FROM members WHERE group_id = ? AND LOWER(name) = LOWER(?)').get(group.id, name.trim());
@@ -257,11 +316,12 @@ app.post('/api/v1/groups/:code/members', (req, res) => {
     return res.status(409).json({ error: 'That name is already in this group' });
   }
   const id = uuidv4();
-  const color = nameToColor(name.trim());
+  const color = nextColorForGroup(memberCountResult?.count || 0);
   try {
     prepare('INSERT INTO members (id, group_id, name, color) VALUES (?, ?, ?, ?)')
       .run(id, group.id, name.trim(), color);
     saveDb();
+    auditLog(req, 'create', 'member', id, { name: name.trim(), group_code: group.code });
     const member = prepare('SELECT * FROM members WHERE id = ?').get(id);
     res.status(201).json(member);
   } catch (err) {
@@ -269,14 +329,14 @@ app.post('/api/v1/groups/:code/members', (req, res) => {
   }
 });
 
-app.delete('/api/v1/groups/:code/members/:id', adminOrToken, (req, res) => {
+app.delete('/api/v1/groups/:code/members/:id', requireAdmin, (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   const member = prepare('SELECT * FROM members WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
   if (!member) return res.status(404).json({ error: 'Member not found' });
 
   const force = req.query.force === 'true';
-  const debts = calculateSimplifiedDebts(group.id);
+  const debts = calculateSimplifiedDebtsFromDb(group.id);
   const balance = debts.balances[member.id]?.balance || 0;
 
   if (!force && Math.abs(balance) > 0.01) {
@@ -301,6 +361,7 @@ app.delete('/api/v1/groups/:code/members/:id', adminOrToken, (req, res) => {
     // Remove the member
     prepare('DELETE FROM members WHERE id = ? AND group_id = ?').run(req.params.id, group.id);
     saveDb();
+    auditLog(req, 'delete', 'member', req.params.id, { name: member.name, balance: Math.round(balance * 100) / 100, force });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -313,11 +374,18 @@ app.delete('/api/v1/groups/:code/members/:id', adminOrToken, (req, res) => {
 app.post('/api/v1/groups/:code/expenses', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, shares: sharesInput, nights: nightsInput, date, date_range_start, date_range_end, created_by } = req.body;
+  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, shares: sharesInput, nights: nightsInput, nights_mode, calc_method: calcMethod, num_nights, date, date_range_start, date_range_end, created_by, category, notes, payers } = req.body;
 
   if (!description || description.trim().length === 0) return res.status(400).json({ error: 'Description is required' });
   if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount must be greater than $0' });
   if (!payer_id) return res.status(400).json({ error: 'Payer is required' });
+
+  // Validate category if provided
+  if (category && !CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: `Invalid category. Must be one of: ${CATEGORIES.join(', ')}` });
+  }
+  // Truncate notes
+  const safeNotes = notes ? notes.substring(0, 500) : null;
 
   const payer = prepare('SELECT id FROM members WHERE id = ? AND group_id = ?').get(payer_id, group.id);
   if (!payer) return res.status(400).json({ error: 'Payer must be a member of this group' });
@@ -335,103 +403,21 @@ app.post('/api/v1/groups/:code/expenses', (req, res) => {
   } else {
     splitMemberIds = members.map(m => m.id);
   }
-
   if (splitMemberIds.length === 0) return res.status(400).json({ error: 'At least one person must be in the split' });
 
-  const shares = {};
   const roundedAmount = Math.round(amount * 100) / 100;
-
-  if (type === 'equal') {
-    const sharePerPerson = Math.round((roundedAmount / splitMemberIds.length) * 100) / 100;
-    const totalAllocated = Math.round(sharePerPerson * splitMemberIds.length * 100) / 100;
-    const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
-    splitMemberIds.forEach((mid, i) => {
-      shares[mid] = sharePerPerson + (i < Math.round(remainder * 100) ? 0.01 : 0);
-    });
-  } else if (type === 'shares') {
-    if (!sharesInput) return res.status(400).json({ error: 'shares required for shares split type' });
-    const totalShares = Object.entries(sharesInput)
-      .filter(([mid]) => splitMemberIds.includes(mid))
-      .reduce((sum, [, s]) => sum + Number(s), 0);
-    if (totalShares <= 0) return res.status(400).json({ error: 'Total shares must be greater than 0' });
-    let totalAllocated = 0;
-    const included = Object.entries(sharesInput).filter(([mid]) => splitMemberIds.includes(mid));
-    included.forEach(([mid, s], i) => {
-      const shareAmt = Math.round((Number(s) / totalShares) * roundedAmount * 100) / 100;
-      shares[mid] = shareAmt;
-      totalAllocated += shareAmt;
-    });
-    // Distribute rounding remainder
-    const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
-    if (remainder > 0) {
-      const sortedByShareDesc = [...included].sort((a, b) => Number(b[1]) - Number(a[1]));
-      for (let i = 0; i < Math.round(remainder * 100) && i < sortedByShareDesc.length; i++) {
-        shares[sortedByShareDesc[i][0]] = Math.round((shares[sortedByShareDesc[i][0]] + 0.01) * 100) / 100;
-      }
-    }
-  } else if (type === 'nights') {
-    if (!nightsInput) return res.status(400).json({ error: 'nights required for nights split type' });
-    if (!date_range_start || !date_range_end) return res.status(400).json({ error: 'date_range_start and date_range_end required for nights split type' });
-    
-    const startDate = new Date(date_range_start);
-    const endDate = new Date(date_range_end);
-    const numNights = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24));
-    if (numNights <= 0) return res.status(400).json({ error: 'date range must span at least 1 night' });
-    
-    const perNightCost = roundedAmount / numNights;
-    let totalAllocated = 0;
-    const nightShares = {}; // mid -> total share
-    
-    // Calculate for each night
-    for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
-      const presentIds = [];
-      for (const [mid, dates] of Object.entries(nightsInput)) {
-        if (splitMemberIds.includes(mid) && dates.includes(dateStr)) {
-          presentIds.push(mid);
-        }
-      }
-      if (presentIds.length === 0) continue; // Skip nights with nobody
-      const sharePerPerson = perNightCost / presentIds.length;
-      presentIds.forEach(mid => {
-        nightShares[mid] = (nightShares[mid] || 0) + sharePerPerson;
-      });
-    }
-    
-    // Round and distribute remainder
-    for (const mid of Object.keys(nightShares)) {
-      nightShares[mid] = Math.round(nightShares[mid] * 100) / 100;
-    }
-    let sumShares = Object.values(nightShares).reduce((s, v) => s + v, 0);
-    const roundingRemainder = Math.round((roundedAmount - sumShares) * 100) / 100;
-    if (roundingRemainder > 0) {
-      const sorted = Object.entries(nightShares).sort((a, b) => b[1] - a[1]);
-      for (let i = 0; i < Math.round(roundingRemainder * 100) && i < sorted.length; i++) {
-        nightShares[sorted[i][0]] = Math.round((nightShares[sorted[i][0]] + 0.01) * 100) / 100;
-      }
-    }
-    Object.assign(shares, nightShares);
-  } else if (type === 'exact') {
-    if (!exact_amounts) return res.status(400).json({ error: 'exact_amounts required for exact split type' });
-    const total = Object.values(exact_amounts).reduce((sum, v) => sum + v, 0);
-    if (Math.abs(total - roundedAmount) > 0.01) {
-      return res.status(400).json({ error: `Split amounts must equal the total ($${roundedAmount.toFixed(2)}). Got $${total.toFixed(2)}` });
-    }
-    for (const [mid, val] of Object.entries(exact_amounts)) {
-      if (!splitMemberIds.includes(mid)) return res.status(400).json({ error: `Member ${mid} not in split` });
-      shares[mid] = val;
-    }
-  } else if (type === 'percentage') {
-    if (!percentages) return res.status(400).json({ error: 'percentages required for percentage split type' });
-    const totalPct = Object.values(percentages).reduce((sum, v) => sum + v, 0);
-    if (Math.abs(totalPct - 100) > 0.01) {
-      return res.status(400).json({ error: `Split percentages must add up to 100%. Got ${totalPct.toFixed(1)}%` });
-    }
-    for (const [mid, pct] of Object.entries(percentages)) {
-      if (!splitMemberIds.includes(mid)) return res.status(400).json({ error: `Member ${mid} not in split` });
-      shares[mid] = Math.round(roundedAmount * pct / 100 * 100) / 100;
-    }
-  }
+  const { shares, error: splitError } = calculateSplits(type, roundedAmount, splitMemberIds, {
+    sharesInput,
+    nightsInput,
+    nightsMode: nights_mode,
+    dateRangeStart: date_range_start,
+    dateRangeEnd: date_range_end,
+    numNights: num_nights,
+    calcMethod: calcMethod,
+    exactAmounts: exact_amounts,
+    percentages,
+  });
+  if (splitError) return res.status(400).json({ error: splitError });
 
   // Anti-fat-finger
   const recent = prepare(
@@ -441,17 +427,48 @@ app.post('/api/v1/groups/:code/expenses', (req, res) => {
 
   const id = uuidv4();
   const expenseDate = date || new Date().toISOString().split('T')[0];
-  const nightsDataJson = type === 'nights' ? JSON.stringify(nightsInput) : null;
-  const drStart = type === 'nights' ? date_range_start : null;
-  const drEnd = type === 'nights' ? date_range_end : null;
+
+  // Build nights_data: store member-day matrix with mode + calc metadata
+  let nightsDataJson = null;
+  let drStart = null;
+  let drEnd = null;
+  if (type === 'nights') {
+    const nightData = buildNightsData(nightsInput, {
+      nightsMode: nights_mode,
+      dateRangeStart: date_range_start,
+      dateRangeEnd: date_range_end,
+      numNights: num_nights,
+      calcMethod: calcMethod,
+    });
+    nightsDataJson = nightData.json;
+    drStart = nightData.drStart;
+    drEnd = nightData.drEnd;
+  }
 
   try {
-    prepare('INSERT INTO expenses (id, group_id, description, amount, payer_id, split_type, date, created_by, date_range_start, date_range_end, nights_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, group.id, description.trim(), roundedAmount, payer_id, type, expenseDate, created_by || null, drStart, drEnd, nightsDataJson);
+    const payersDataJson = payers && payers.length > 0 ? JSON.stringify(payers) : null;
+
+    const sharesDataJson = (type === 'shares' && sharesInput) ? JSON.stringify(sharesInput) : null;
+    prepare('INSERT INTO expenses (id, group_id, description, amount, payer_id, split_type, date, created_by, date_range_start, date_range_end, nights_data, category, notes, payers_data, shares_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, group.id, description.trim(), roundedAmount, payer_id, type, expenseDate, created_by || null, drStart, drEnd, nightsDataJson, category || null, safeNotes, payersDataJson, sharesDataJson);
     for (const [mid, share] of Object.entries(shares)) {
       prepare('INSERT INTO splits (expense_id, member_id, share) VALUES (?, ?, ?)').run(id, mid, share);
     }
     saveDb();
+    const payerName = prepare('SELECT name FROM members WHERE id = ?').get(payer_id)?.name || 'unknown';
+    auditLog(req, 'create', 'expense', id, {
+      description: description.trim(),
+      amount: roundedAmount,
+      payer: payerName,
+      split_type: type,
+      date: expenseDate,
+      ...(category ? { category } : {}),
+      ...(safeNotes ? { notes: safeNotes } : {}),
+      splits: Object.fromEntries(Object.entries(shares).map(([mid, s]) => {
+        const mn = prepare('SELECT name FROM members WHERE id = ?').get(mid);
+        return [mn?.name || mid, s];
+      }))
+    });
     const expense = prepare('SELECT * FROM expenses WHERE id = ?').get(id);
     const splits = prepare('SELECT s.member_id, s.share, m.name as member_name FROM splits s JOIN members m ON s.member_id = m.id WHERE s.expense_id = ?').all(id);
     res.status(201).json({ ...expense, splits });
@@ -469,7 +486,7 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
   const expense = prepare('SELECT * FROM expenses WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
 
-  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, shares: sharesInput, nights: nightsInput, date, date_range_start, date_range_end } = req.body;
+  const { description, amount, payer_id, split_type, split_among, exact_amounts, percentages, shares: sharesInput, nights: nightsInput, nights_mode, calc_method: calcMethod, num_nights, date, date_range_start, date_range_end, category, notes, payers } = req.body;
 
   // Build update fields
   const updates = [];
@@ -495,6 +512,18 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
     updates.push('date = ?');
     values.push(date);
   }
+  if (category !== undefined) {
+    const CATEGORIES = ['groceries', 'dining', 'transport', 'accommodation', 'entertainment', 'utilities', 'health'];
+    if (category && !CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: `Invalid category: ${category}` });
+    }
+    updates.push('category = ?');
+    values.push(category || null);
+  }
+  if (notes !== undefined) {
+    updates.push('notes = ?');
+    values.push(notes ? notes.substring(0, 500) : null);
+  }
 
   // If amount, split_type, or split_among changed, recalculate splits
   const newAmount = amount !== undefined ? amount : expense.amount;
@@ -502,8 +531,8 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
   const members = prepare('SELECT id FROM members WHERE group_id = ?').all(group.id);
   const memberIds = new Set(members.map(m => m.id));
 
-  let needsResplit = split_type || amount || split_among;
-  let newSplits = null;
+  let needsResplit = split_type || amount || split_among || sharesInput || exact_amounts || percentages || nightsInput || nights_mode || calcMethod;
+  let resolvedSplits = null;
   let nightsDataJson = null;
   let drStart = null;
   let drEnd = null;
@@ -522,109 +551,62 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
     if (splitMemberIds.length === 0) return res.status(400).json({ error: 'At least one person must be in the split' });
 
     const roundedAmount = Math.round(newAmount * 100) / 100;
-    newSplits = {};
+    const { shares: newSplits, error: splitError } = calculateSplits(newType, roundedAmount, splitMemberIds, {
+      sharesInput,
+      nightsInput,
+      nightsMode: nights_mode,
+      dateRangeStart: date_range_start || expense.date_range_start,
+      dateRangeEnd: date_range_end || expense.date_range_end,
+      numNights: num_nights,
+      calcMethod: calcMethod,
+      exactAmounts: exact_amounts,
+      percentages,
+    });
+    resolvedSplits = newSplits;
+    if (splitError) return res.status(400).json({ error: splitError });
 
-    if (newType === 'equal') {
-      const sharePerPerson = Math.round((roundedAmount / splitMemberIds.length) * 100) / 100;
-      const totalAllocated = Math.round(sharePerPerson * splitMemberIds.length * 100) / 100;
-      const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
-      splitMemberIds.forEach((mid, i) => {
-        newSplits[mid] = sharePerPerson + (i < Math.round(remainder * 100) ? 0.01 : 0);
-      });
-    } else if (newType === 'shares') {
-      if (!sharesInput) return res.status(400).json({ error: 'shares required for shares split type' });
-      const totalShares = Object.entries(sharesInput)
-        .filter(([mid]) => splitMemberIds.includes(mid))
-        .reduce((sum, [, s]) => sum + Number(s), 0);
-      if (totalShares <= 0) return res.status(400).json({ error: 'Total shares must be greater than 0' });
-      let totalAllocated = 0;
-      const included = Object.entries(sharesInput).filter(([mid]) => splitMemberIds.includes(mid));
-      included.forEach(([mid, s]) => {
-        const shareAmt = Math.round((Number(s) / totalShares) * roundedAmount * 100) / 100;
-        newSplits[mid] = shareAmt;
-        totalAllocated += shareAmt;
-      });
-      const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
-      if (remainder > 0) {
-        const sortedByShareDesc = [...included].sort((a, b) => Number(b[1]) - Number(a[1]));
-        for (let i = 0; i < Math.round(remainder * 100) && i < sortedByShareDesc.length; i++) {
-          newSplits[sortedByShareDesc[i][0]] = Math.round((newSplits[sortedByShareDesc[i][0]] + 0.01) * 100) / 100;
-        }
-      }
-    } else if (newType === 'nights') {
-      if (!nightsInput) return res.status(400).json({ error: 'nights required for nights split type' });
-      const drs = date_range_start || expense.date_range_start;
-      const dre = date_range_end || expense.date_range_end;
-      if (!drs || !dre) return res.status(400).json({ error: 'date_range_start and date_range_end required for nights split type' });
-      drStart = drs;
-      drEnd = dre;
-      const startDate = new Date(drs);
-      const endDate = new Date(dre);
-      const numNights = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24));
-      if (numNights <= 0) return res.status(400).json({ error: 'date range must span at least 1 night' });
-      const perNightCost = roundedAmount / numNights;
-      const nightShares = {};
-      for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
-        const presentIds = [];
-        for (const [mid, dates] of Object.entries(nightsInput)) {
-          if (splitMemberIds.includes(mid) && dates.includes(dateStr)) {
-            presentIds.push(mid);
-          }
-        }
-        if (presentIds.length === 0) continue;
-        const sharePerPerson = perNightCost / presentIds.length;
-        presentIds.forEach(mid => {
-          nightShares[mid] = (nightShares[mid] || 0) + sharePerPerson;
-        });
-      }
-      for (const mid of Object.keys(nightShares)) {
-        nightShares[mid] = Math.round(nightShares[mid] * 100) / 100;
-      }
-      let sumShares = Object.values(nightShares).reduce((s, v) => s + v, 0);
-      const roundingRemainder = Math.round((roundedAmount - sumShares) * 100) / 100;
-      if (roundingRemainder > 0) {
-        const sorted = Object.entries(nightShares).sort((a, b) => b[1] - a[1]);
-        for (let i = 0; i < Math.round(roundingRemainder * 100) && i < sorted.length; i++) {
-          nightShares[sorted[i][0]] = Math.round((nightShares[sorted[i][0]] + 0.01) * 100) / 100;
-        }
-      }
-      Object.assign(newSplits, nightShares);
-      nightsDataJson = JSON.stringify(nightsInput);
-    } else if (newType === 'exact') {
-      if (!exact_amounts) return res.status(400).json({ error: 'exact_amounts required' });
-      const total = Object.values(exact_amounts).reduce((sum, v) => sum + v, 0);
-      if (Math.abs(total - roundedAmount) > 0.01) return res.status(400).json({ error: `Amounts must equal total ($${roundedAmount.toFixed(2)})` });
-      for (const [mid, val] of Object.entries(exact_amounts)) {
-        if (!splitMemberIds.includes(mid)) return res.status(400).json({ error: `Member ${mid} not in split` });
-        newSplits[mid] = val;
-      }
-    } else if (newType === 'percentage') {
-      if (!percentages) return res.status(400).json({ error: 'percentages required' });
-      const totalPct = Object.values(percentages).reduce((sum, v) => sum + v, 0);
-      if (Math.abs(totalPct - 100) > 0.01) return res.status(400).json({ error: 'Percentages must total 100%' });
-      for (const [mid, pct] of Object.entries(percentages)) {
-        if (!splitMemberIds.includes(mid)) return res.status(400).json({ error: `Member ${mid} not in split` });
-        newSplits[mid] = Math.round(roundedAmount * pct / 100 * 100) / 100;
-      }
-    }
     updates.push('split_type = ?');
     values.push(newType);
-    
+
     // Handle nights-specific columns
-    if (nightsDataJson) {
+    if (newType === 'nights') {
+      const nightData = buildNightsData(nightsInput, {
+        nightsMode: nights_mode,
+        dateRangeStart: date_range_start || expense.date_range_start,
+        dateRangeEnd: date_range_end || expense.date_range_end,
+        numNights: num_nights,
+        calcMethod: calcMethod,
+      });
+      nightsDataJson = nightData.json;
+      drStart = nightData.drStart;
+      drEnd = nightData.drEnd;
       updates.push('nights_data = ?');
       values.push(nightsDataJson);
       updates.push('date_range_start = ?');
       values.push(drStart);
       updates.push('date_range_end = ?');
       values.push(drEnd);
-    } else if (newType !== 'nights') {
+    } else {
       updates.push('nights_data = ?');
       values.push(null);
       updates.push('date_range_start = ?');
       values.push(null);
       updates.push('date_range_end = ?');
+      values.push(null);
+    }
+
+    // Handle payers_data
+    if (payers !== undefined) {
+      updates.push('payers_data = ?');
+      values.push(payers && payers.length > 0 ? JSON.stringify(payers) : null);
+    }
+
+    // Handle shares_data
+    if (newType === 'shares' && sharesInput) {
+      updates.push('shares_data = ?');
+      values.push(JSON.stringify(sharesInput));
+    } else if (newType !== 'shares') {
+      updates.push('shares_data = ?');
       values.push(null);
     }
   }
@@ -633,13 +615,14 @@ app.patch('/api/v1/groups/:code/expenses/:id', (req, res) => {
     if (updates.length > 0) {
       prepare(`UPDATE expenses SET ${updates.join(', ')} WHERE id = ?`).run(...values, expense.id);
     }
-    if (newSplits) {
+    if (resolvedSplits) {
       prepare('DELETE FROM splits WHERE expense_id = ?').run(expense.id);
-      for (const [mid, share] of Object.entries(newSplits)) {
+      for (const [mid, share] of Object.entries(resolvedSplits)) {
         prepare('INSERT INTO splits (expense_id, member_id, share) VALUES (?, ?, ?)').run(expense.id, mid, share);
       }
     }
     saveDb();
+    auditLog(req, 'update', 'expense', expense.id, req.body);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to update expense' });
@@ -657,7 +640,59 @@ app.delete('/api/v1/groups/:code/expenses/:id', (req, res) => {
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   prepare('DELETE FROM splits WHERE expense_id = ?').run(req.params.id);
   prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
+  // Delete associated attachments
+  const attachments = prepare('SELECT * FROM attachments WHERE expense_id = ?').all(req.params.id);
+  attachments.forEach(a => {
+    try { fs.unlinkSync(a.path); } catch {}
+  });
+  prepare('DELETE FROM attachments WHERE expense_id = ?').run(req.params.id);
   saveDb();
+  auditLog(req, 'delete', 'expense', req.params.id, expense);
+  res.json({ success: true });
+});
+
+// ==================== ATTACHMENT ROUTES ====================
+
+// Upload receipt to an expense
+app.post('/api/v1/groups/:code/expenses/:id/attachments', upload.single('receipt'), (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const expense = prepare('SELECT * FROM expenses WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  if (!expense) return res.status(404).json({ error: 'Expense not found' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const id = uuidv4();
+  prepare('INSERT INTO attachments (id, expense_id, filename, mimetype, size, path) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.file.originalname, req.file.mimetype, req.file.size, req.file.path);
+  saveDb();
+  auditLog(req, 'upload', 'attachment', id, { expense_id: req.params.id, filename: req.file.originalname });
+  res.status(201).json({ id, filename: req.file.originalname, mimetype: req.file.mimetype, size: req.file.size });
+});
+
+// List attachments for an expense
+app.get('/api/v1/groups/:code/expenses/:id/attachments', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const attachments = prepare('SELECT id, filename, mimetype, size, created_at FROM attachments WHERE expense_id = ?').all(req.params.id);
+  res.json(attachments);
+});
+
+// Serve attachment file
+app.get('/api/v1/attachments/:id/file', (req, res) => {
+  const att = prepare('SELECT * FROM attachments WHERE id = ?').get(req.params.id);
+  if (!att) return res.status(404).json({ error: 'Attachment not found' });
+  if (!fs.existsSync(att.path)) return res.status(404).json({ error: 'File not found on disk' });
+  res.sendFile(att.path);
+});
+
+// Delete attachment
+app.delete('/api/v1/attachments/:id', (req, res) => {
+  const att = prepare('SELECT * FROM attachments WHERE id = ?').get(req.params.id);
+  if (!att) return res.status(404).json({ error: 'Attachment not found' });
+  try { fs.unlinkSync(att.path); } catch {}
+  prepare('DELETE FROM attachments WHERE id = ?').run(req.params.id);
+  saveDb();
+  auditLog(req, 'delete', 'attachment', req.params.id, { filename: att.filename });
   res.json({ success: true });
 });
 
@@ -676,7 +711,7 @@ app.post('/api/v1/groups/:code/settlements', (req, res) => {
   const toMember = prepare('SELECT id, name FROM members WHERE id = ? AND group_id = ?').get(to_id, group.id);
   if (!fromMember || !toMember) return res.status(400).json({ error: 'Both parties must be members' });
 
-  const debts = calculateSimplifiedDebts(group.id);
+  const debts = calculateSimplifiedDebtsFromDb(group.id);
   const outstandingFromTo = debts.transactions
     .filter(t => t.from.id === from_id && t.to.id === to_id)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -689,6 +724,11 @@ app.post('/api/v1/groups/:code/settlements', (req, res) => {
     prepare('INSERT INTO settlements (id, group_id, from_id, to_id, amount) VALUES (?, ?, ?, ?, ?)')
       .run(id, group.id, from_id, to_id, Math.round(amount * 100) / 100);
     saveDb();
+    auditLog(req, 'create', 'settlement', id, {
+      from: fromMember.name,
+      to: toMember.name,
+      amount: Math.round(amount * 100) / 100
+    });
     const settlement = prepare(
       'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.id = ?'
     ).get(id);
@@ -710,6 +750,7 @@ app.patch('/api/v1/groups/:code/settlements/:id', (req, res) => {
 
   prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, req.params.id);
   saveDb();
+  auditLog(req, status, 'settlement', req.params.id, { from: settlement.from_id, to: settlement.to_id, amount: settlement.amount });
   const updated = prepare(
     'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.id = ?'
   ).get(req.params.id);

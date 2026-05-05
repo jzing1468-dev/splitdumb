@@ -1,0 +1,23 @@
+{
+  "name": "splitdumb-p2p",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "yjs": "^13.6.21",
+    "y-indexeddb": "^9.0.12",
+    "trystero": "^0.23.0",
+    "@splitdumb/core": "file:../core",
+    "@splitdumb/ui": "file:../ui",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.6.0",
+    "vite": "^6.3.5"
+  }
+}

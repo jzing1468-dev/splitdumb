@@ -1,4 +1,11 @@
 node_modules/
-server/splitdumb.db
 dist/
-server/splitdumb.db*
+server/splitdumb.db
+server/splitdumb.db-*
+server/uploads/
+.env
+.env.*
+!.env.example
+*.map
+.hermes/
+PROGRESS.md

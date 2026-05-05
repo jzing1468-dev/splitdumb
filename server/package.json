@@ -7,13 +7,12 @@
     "dev": "node index.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^11.10.0",
-    "cookie": "^1.1.1",
     "cors": "^2.8.6",
     "express": "^4.22.1",
     "jose": "^6.2.3",
+    "multer": "^2.1.1",
     "sql.js": "^1.14.1",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "@splitdumb/core": "file:../core"
   }
 }

@@ -1,167 +1,117 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
-
-const AUTH_SERVICE = 'https://auth.johnzhong.win';
+import { useNavigate, Link } from 'react-router-dom';
+import { api, removeRecentGroup, AUTH_SERVICE } from '../api';
 
 function Home() {
   const [groupName, setGroupName] = useState('');
-  const [groupCode, setGroupCode] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [savedGroups, setSavedGroups] = useState([]);
-  const [authUser, setAuthUser] = useState(null);
+  const [recent, setRecent] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const groups = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
-    setSavedGroups(groups);
-    // Check auth via cookie — hit the /me endpoint
-    api.me().then(user => {
-      setAuthUser(user);
-      localStorage.setItem('splitdumb_auth', JSON.stringify(user));
-    }).catch(() => {
-      setAuthUser(null);
-      localStorage.removeItem('splitdumb_auth');
+    const saved = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]').slice(0, 6);
+    if (saved.length === 0) { setRecent([]); return; }
+    // Validate each recent group still exists on the server
+    Promise.all(saved.map(g =>
+      api.getGroup(g.code)
+        .then(data => ({ code: g.code, name: data.name, valid: true }))
+        .catch(() => {
+          removeRecentGroup(g.code);
+          return { code: g.code, valid: false };
+        })
+    )).then(results => {
+      setRecent(results.filter(r => r.valid));
     });
   }, []);
 
-  const handleLogout = async (e) => {
-    e.preventDefault();
-    try {
-      await fetch(`${AUTH_SERVICE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-    } catch (e) {}
-    localStorage.removeItem('splitdumb_auth');
-    setAuthUser(null);
-    window.location.href = '/splitdumb/';
-  };
+  useEffect(() => {
+    api.me().then(user => {
+      setIsAdmin(user?.role === 'admin');
+    }).catch(() => {
+      setIsAdmin(false);
+    }).finally(() => setAuthChecked(true));
+  }, []);
 
-  const handleCreate = async (e) => {
+  const createGroup = async (e) => {
     e.preventDefault();
     if (!groupName.trim()) return;
+    setCreating(true);
     setError('');
-    setLoading(true);
     try {
       const group = await api.createGroup(groupName.trim());
-      const saved = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
-      if (!saved.find(g => g.code === group.code)) {
-        saved.push({ code: group.code, name: group.name });
-        localStorage.setItem('splitdumb_groups', JSON.stringify(saved));
-      }
-      navigate(`/group/${group.code}`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      navigate(`/splitdumb/group/${group.code}`);
+    } catch (err) { setError(err.message); }
+    finally { setCreating(false); }
   };
 
-  const handleJoin = async (e) => {
+  const joinGroup = (e) => {
     e.preventDefault();
-    const code = groupCode.trim().toUpperCase();
-    if (!code) return;
-    setError('');
-    setLoading(true);
-    try {
-      await api.getGroup(code);
-      const saved = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
-      if (!saved.find(g => g.code === code)) {
-        const group = await api.getGroup(code);
-        saved.push({ code: group.code, name: group.name });
-        localStorage.setItem('splitdumb_groups', JSON.stringify(saved));
-      }
-      navigate(`/group/${code}`);
-    } catch (err) {
-      setError('Group not found — check the code');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const removeSavedGroup = (code) => {
-    const saved = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
-    const filtered = saved.filter(g => g.code !== code);
-    localStorage.setItem('splitdumb_groups', JSON.stringify(filtered));
-    setSavedGroups(filtered);
+    const clean = joinCode.trim().toUpperCase();
+    if (!clean || clean.length < 4) return;
+    navigate(`/splitdumb/group/${clean}`);
   };
 
   return (
-    <div className="page">
-      <div style={{ padding: '48px 20px 24px', textAlign: 'center' }}>
-        <h2 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: 8 }}>Split expenses,<br />not friendships.</h2>
-        <p style={{ color: 'var(--text-dim)', fontSize: '0.95rem' }}>No sign-up needed. Create a group, share the code, start splitting.</p>
-        {authUser && (
-          <div style={{ marginTop: 12 }}>
-            <a href="/splitdumb/admin" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.9rem' }}>🛡️ Admin Panel</a>
-            <span style={{ marginLeft: 16, fontSize: '0.85rem', color: 'var(--text-dim)' }}>
-              Logged in as {authUser.username} · <a href="#" onClick={handleLogout} style={{ color: 'var(--text-dim)' }}>Logout</a>
-            </span>
-          </div>
-        )}
-        {!authUser && (
-          <div style={{ marginTop: 12 }}>
-            <a href={`${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`} style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>🔐 Admin Login</a>
-          </div>
-        )}
+    <div style={{ padding: 0 }}>
+      <div className="hero">
+        <span className="hero-icon">💸</span>
+        <h1 className="hero-title">SplitDumb</h1>
+        <p className="hero-sub">Split expenses, not friendships</p>
       </div>
 
-      <div className="card">
-        <form onSubmit={handleCreate}>
-          <div className="form-group">
-            <label className="form-label">Create a new group</label>
-            <input
-              className="form-input"
-              placeholder="Weekend in Miami"
-              value={groupName}
-              onChange={e => setGroupName(e.target.value)}
-              maxLength={50}
-            />
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={loading || !groupName.trim()}>
-            {loading ? 'Creating...' : 'Create Group'}
-          </button>
-        </form>
-      </div>
-
-      <div className="card">
-        <form onSubmit={handleJoin}>
-          <div className="form-group">
-            <label className="form-label">Join an existing group</label>
-            <input
-              className="form-input"
-              placeholder="ABC123"
-              value={groupCode}
-              onChange={e => setGroupCode(e.target.value.toUpperCase())}
-              maxLength={6}
-              style={{ letterSpacing: '2px', textTransform: 'uppercase' }}
-            />
-          </div>
-          <button className="btn btn-secondary" type="submit" disabled={loading || !groupCode.trim()}>
-            {loading ? 'Joining...' : 'Join Group'}
-          </button>
-        </form>
-      </div>
-
-      {error && <div className="error">{error}</div>}
-
-      {savedGroups.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title">Your Groups</div>
-          {savedGroups.map(g => (
-            <div key={g.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <div
-                style={{ cursor: 'pointer', flex: 1 }}
-                onClick={() => navigate(`/group/${g.code}`)}
-              >
-                <div style={{ fontWeight: 600 }}>{g.name}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>{g.code}</div>
-              </div>
-              <button
-                className="delete-btn"
-                onClick={(e) => { e.stopPropagation(); removeSavedGroup(g.code); }}
-              >✕</button>
+      {isAdmin && (
+        <div className="card">
+          <div className="card-title">Create a group</div>
+          <form onSubmit={createGroup}>
+            <div className="form-group">
+              <input className="form-input" placeholder="e.g. Miami trip, dinner club"
+                value={groupName} onChange={e => setGroupName(e.target.value)} maxLength={50} autoFocus />
             </div>
-          ))}
+            {error && <div className="error" style={{ margin: '0 0 12px' }}>{error}</div>}
+            <button className="btn btn-primary" type="submit" disabled={creating || !groupName.trim()}>
+              {creating ? 'Creating...' : 'Create group'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      <div className="card">
+        <div className="card-title">Join a group</div>
+        <form onSubmit={joinGroup}>
+          <div className="form-group">
+            <input className="form-input" placeholder="Enter 6-letter code"
+              value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())} maxLength={6}
+              style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', textTransform: 'uppercase' }} />
+          </div>
+          <button className="btn btn-secondary" type="submit" disabled={!joinCode.trim()}>
+            Join group
+          </button>
+        </form>
+      </div>
+
+      {recent.length > 0 && (
+        <>
+          <div className="section-label" style={{ marginTop: 8 }}>Recent groups</div>
+          <div className="recent-groups">
+            {recent.map(g => (
+              <Link key={g.code} to={`/splitdumb/group/${g.code}`} className="recent-group-chip">
+                {g.name} <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{g.code}</span>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!isAdmin && authChecked && (
+        <div style={{ textAlign: 'center', padding: '28px 24px' }}>
+          <a href={`${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/')}`}
+            style={{ color: 'var(--text-dim)', fontSize: '0.78rem', textDecoration: 'none' }}>
+            🔐 Admin login
+          </a>
         </div>
       )}
     </div>

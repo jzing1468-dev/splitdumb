@@ -60,6 +60,32 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_splits_expense ON splits(expense_id);
   CREATE INDEX IF NOT EXISTS idx_settlements_group ON settlements(group_id);
   CREATE INDEX IF NOT EXISTS idx_groups_code ON groups(code);
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    member_id TEXT REFERENCES members(id),
+    member_name TEXT,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    changes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_group ON audit_log(group_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_member ON audit_log(member_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
+
+  CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    expense_id TEXT NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    mimetype TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_attachments_expense ON attachments(expense_id);
 `;
 
 function saveDb() {
@@ -163,6 +189,29 @@ async function init() {
   try {
     db.run('ALTER TABLE expenses ADD COLUMN nights_data TEXT');
   } catch (e) { /* Column already exists */ }
+
+  // Migration: add category and notes columns
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN category TEXT');
+  } catch (e) { /* Column already exists */ }
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN notes TEXT');
+  } catch (e) { /* Column already exists */ }
+
+  // Migration: add payers_data column for multi-payer splits
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN payers_data TEXT');
+  } catch (e) { /* Column already exists */ }
+
+  // Migration: add shares_data column to store raw share counts
+  try {
+    db.run('ALTER TABLE expenses ADD COLUMN shares_data TEXT');
+  } catch (e) { /* Column already exists */ }
+
+  // Migration: drop items_data column (SQLite can't DROP COLUMN, so we null it out)
+  try {
+    db.run("UPDATE expenses SET items_data = NULL WHERE items_data IS NOT NULL");
+  } catch (e) { /* Table may not have column yet */ }
 
   ready = true;
   console.log('Database ready');

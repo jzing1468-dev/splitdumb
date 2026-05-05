@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
-import { api } from '../api';
+import { Link } from 'react-router-dom';
+import { api, AUTH_SERVICE } from '../api';
 
-// This component checks auth status and shows admin link or login redirect
 function Login() {
   const [authUser, setAuthUser] = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // Check if already logged in via shared auth cookie
     api.me().then(user => {
       setAuthUser(user);
       setChecking(false);
@@ -18,23 +17,36 @@ function Login() {
   }, []);
 
   if (checking) {
-    return <div className="loading"><div className="spinner"></div><p>Checking auth...</p></div>;
+    return <div className="loading"><div className="spinner" /><p>Checking auth...</p></div>;
   }
 
   if (authUser) {
-    // Already logged in
     return (
-      <div className="page" style={{ textAlign: 'center', paddingTop: 80 }}>
-        <p style={{ fontSize: '1.1rem', marginBottom: 16 }}>✅ Logged in as <strong>{authUser.username}</strong> ({authUser.role})</p>
-        <a href="/splitdumb/admin" className="btn btn-primary" style={{ display: 'inline-block', textDecoration: 'none' }}>Go to Admin Panel</a>
+      <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+        <p style={{ fontSize: '1.1rem', marginBottom: 20 }}>
+          ✅ Logged in as <strong>{authUser.username}</strong> ({authUser.role})
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 320, margin: '0 auto' }}>
+          <Link to="/splitdumb/admin" className="btn btn-primary">Go to Admin Panel</Link>
+          <Link to="/splitdumb/" className="btn btn-secondary">← Back to Home</Link>
+        </div>
       </div>
     );
   }
 
-  // Not logged in — redirect to shared auth
-  const authUrl = 'https://auth.johnzhong.win/login?from=' + encodeURIComponent(window.location.origin + '/splitdumb/admin');
-  window.location.href = authUrl;
-  return <div className="loading"><p>Redirecting to login...</p></div>;
+  // Not authenticated — show login prompt with back option
+  const authUrl = `${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`;
+  return (
+    <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+      <p style={{ fontSize: '1rem', marginBottom: 20, color: 'var(--text-dim)' }}>
+        You need to log in to access the admin panel.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 320, margin: '0 auto' }}>
+        <a href={authUrl} className="btn btn-primary">🔐 Log in</a>
+        <Link to="/splitdumb/" className="btn btn-secondary">← Back to Home</Link>
+      </div>
+    </div>
+  );
 }
 
 export default Login;

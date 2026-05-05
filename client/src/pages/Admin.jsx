@@ -1,22 +1,21 @@
 import { useState, useEffect } from 'react';
-import { api } from '../api';
-
-const AUTH_SERVICE = 'https://auth.johnzhong.win';
+import { Link, useNavigate } from 'react-router-dom';
+import { api, authLogout, clearAuthState, AUTH_SERVICE } from '../api';
 
 function Admin() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [authUser, setAuthUser] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    // Check auth first
     api.me().then(user => {
       setAuthUser(user);
       loadGroups();
     }).catch(() => {
-      // Not authenticated — redirect to shared auth
-      window.location.href = `${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`;
+      setAuthUser(null);
+      setLoading(false);
     });
   }, []);
 
@@ -24,14 +23,13 @@ function Admin() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.adminGroups();
-      setGroups(data);
+      setGroups(await api.adminGroups());
     } catch (err) {
-      if (err.message && err.message.includes('401')) {
-        window.location.href = `${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`;
-        return;
+      if (err.message?.includes('401') || err.message?.includes('403')) {
+        setAuthUser(null);
+      } else {
+        setError(err.message);
       }
-      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -42,58 +40,78 @@ function Admin() {
     try {
       await api.deleteGroup(code);
       setGroups(prev => prev.filter(g => g.code !== code));
-    } catch (err) {
-      setError(err.message);
-    }
+    } catch (err) { setError(err.message); }
   };
 
   const handleLogout = async () => {
     try {
-      await fetch(`${AUTH_SERVICE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-    } catch (e) {}
-    window.location.href = '/splitdumb/';
+      await authLogout();
+    } catch {}
+    clearAuthState();
+    setAuthUser(null);
+    setGroups([]);
+    navigate('/splitdumb/');
   };
 
-  if (loading) return <div className="loading"><div className="spinner"></div><p>Loading...</p></div>;
+  if (!authUser) {
+    const authUrl = `${AUTH_SERVICE}/login?from=${encodeURIComponent(window.location.origin + '/splitdumb/admin')}`;
+    return (
+      <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+        <p style={{ fontSize: '1rem', marginBottom: 20, color: 'var(--text-dim)' }}>
+          Admin access requires authentication.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 320, margin: '0 auto' }}>
+          <a href={authUrl} className="btn btn-primary">🔐 Log in</a>
+          <Link to="/splitdumb/" className="btn btn-secondary">← Back to Home</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) return <div className="loading"><div className="spinner" /><p>Loading...</p></div>;
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', marginBottom: 16 }}>
-        <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>🛡️ Admin Panel</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {authUser && <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>{authUser.username}</span>}
-          <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={loadGroups}>↻ Refresh</button>
-          <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={handleLogout}>Logout</button>
+      <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="group-name">Admin Panel</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: 2, wordBreak: 'break-word' }}>
+            Logged in as <strong style={{ color: 'var(--text)' }}>{authUser.username}</strong>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+          <Link to="/splitdumb/" className="btn btn-ghost btn-sm" style={{ whiteSpace: 'nowrap' }}>🏠 Home</Link>
+          <button className="btn btn-ghost btn-sm" onClick={handleLogout} style={{ whiteSpace: 'nowrap' }}>🚪 Logout</button>
         </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {groups.length === 0 ? (
-        <div className="empty-state">
-          <p>No groups found</p>
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 0 }}>
-          {groups.map(g => (
-            <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{g.name}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
-                  Code: <code style={{ background: 'var(--surface2)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>{g.code}</code>
-                  {' · '}{g.member_count ?? 0} members
-                  {' · '}{g.expense_count ?? 0} expenses
-                  {' · '}Created {g.created_at ? new Date(g.created_at + 'Z').toLocaleDateString() : 'unknown'}
+      <div className="card" style={{ padding: 0 }}>
+        {groups.length === 0 ? (
+          <div className="empty-state"><p>No groups exist yet</p></div>
+        ) : (
+          groups.map(g => (
+            <div key={g.id} style={{
+              padding: '14px 20px', borderBottom: '1px solid var(--border)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+            }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem', wordBreak: 'break-word' }}>{g.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', wordBreak: 'break-word', lineHeight: 1.5 }}>
+                  <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary-hover)', fontSize: '0.78rem' }}>{g.code}</code>
+                  {' · '}{g.member_count || 0} members{' · '}{g.expense_count || 0} expenses
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <a href={`/splitdumb/group/${g.code}`} className="btn btn-secondary btn-sm" style={{ width: 'auto', textDecoration: 'none', fontSize: '0.75rem' }}>View</a>
-                <button className="btn btn-danger btn-sm" style={{ width: 'auto', fontSize: '0.75rem' }} onClick={() => deleteGroup(g.code)}>Delete</button>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <a href={`/splitdumb/group/${g.code}`} className="btn btn-ghost btn-xs" target="_blank" rel="noopener noreferrer">🔗</a>
+                <button className="btn btn-xs" style={{ background: 'var(--red-dim)', color: 'var(--red)', width: 'auto' }}
+                  onClick={() => deleteGroup(g.code)}>🗑</button>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }

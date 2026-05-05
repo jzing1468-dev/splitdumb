@@ -6,8 +6,8 @@ const path = require('path');
 // Serves static SPA files under /splitdumb/
 // Proxies /splitdumb/api/ → backend on 3001
 
-const PORT = 7780;
-const BACKEND_PORT = 3001;
+const PORT = process.env.PORT || 7780;
+const BACKEND_PORT = parseInt(process.env.BACKEND_PORT) || 3001;
 const BASE_PATH = '/splitdumb';
 const STATIC_DIR = path.join(__dirname, 'client', 'dist');
 
@@ -36,7 +36,12 @@ const server = http.createServer((req, res) => {
         headers: { ...req.headers, host: `localhost:${BACKEND_PORT}` },
       },
       (proxyRes) => {
-        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        // Forward backend headers, but ensure no caching for API responses
+        const headers = { ...proxyRes.headers };
+        headers['cache-control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate';
+        headers['pragma'] = 'no-cache';
+        headers['expires'] = '0';
+        res.writeHead(proxyRes.statusCode, headers);
         proxyRes.pipe(res);
       }
     );
@@ -45,8 +50,9 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: 'Backend unavailable' }));
     });
 
-    // Collect request body for POST/PATCH
-    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT') {
+    // Collect request body for POST/PATCH unless multipart (binary stream)
+    const isMultipart = req.headers['content-type']?.includes('multipart/form-data');
+    if ((req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT') && !isMultipart) {
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => {

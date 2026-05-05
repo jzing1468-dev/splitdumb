@@ -1,47 +1,42 @@
-# SplitDumb 💸
+# SplitDumb
 
-No-signup expense splitter. Create a group, share the code, split bills.
+Group expense splitting app — two versions:
 
-## Quick Start
+- **Server** (`/server` + `/client`): Traditional client-server architecture with SQLite backend, auth, and admin features
+- **P2P** (`/p2p`): Peer-to-peer version using Yjs + Trystero (WebRTC). No server needed — works from a single HTML file.
 
-### Backend
+## Shared Packages
+
+- `core` — Debt calculation, split logic, validators, categories
+- `ui` — Shared React components (GroupPage, AddExpense, IdentityPicker, styles)
+
+## Server Version Setup
+
 ```bash
-cd server
-npm install
+cd server && npm install
+cp .env.example .env  # Edit with your settings
 npm start
-# Running on http://localhost:3001
 ```
 
-### Frontend
+The client is served via the proxy (`proxy.js`) or can be built and served statically.
+
 ```bash
-cd client
-npm install
-npm run dev
-# Running on http://localhost:5173
+cd client && npm install && npm run dev
 ```
 
-## Features
+## P2P Version
 
-- **No registration** — just create a group and share the code
-- **Add members by name** — no accounts needed
-- **Equal, exact, or percentage splits** — flexible expense splitting
-- **Simplified debts** — minimized number of transactions
-- **Settlement tracking** — record and confirm payments
-- **Responsive** — works on mobile and desktop
+```bash
+cd p2p && npm install
+npm run dev           # Development server
+npm run build         # Multi-file build
+npx vite build --config vite.config.single.js  # Single HTML file
+```
 
-## API
+## Environment Variables
 
-- `POST /api/v1/groups` — Create group
-- `GET /api/v1/groups/:code` — Get group (with balances)
-- `POST /api/v1/groups/:code/members` — Add member
-- `POST /api/v1/groups/:code/expenses` — Add expense
-- `DELETE /api/v1/groups/:code/expenses/:id` — Delete expense
-- `POST /api/v1/groups/:code/settlements` — Record settlement
-- `PATCH /api/v1/groups/:code/settlements/:id` — Confirm/dispute settlement
+See `.env.example` files in `server/` and `client/`.
 
-## Tech Stack
+## License
 
-- **Frontend:** React + Vite
-- **Backend:** Node.js + Express
-- **Database:** SQLite (via better-sqlite3)
-- **No auth** — group code is access
+MIT

@@ -1,0 +1,18 @@
+{
+  "name": "@splitdumb/core",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./index.cjs",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./index.cjs",
+      "default": "./index.cjs"
+    },
+    "./debts": "./src/debts.js",
+    "./colors": "./src/colors.js",
+    "./splits": "./src/splits.js",
+    "./validators": "./src/validators.js",
+    "./categories": "./src/categories.js"
+  }
+}
