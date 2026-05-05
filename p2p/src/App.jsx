@@ -65,7 +65,7 @@ function App() {
   }, [groupId, doc]);
 
   const handleJoinGroup = async (code) => {
-    if (loading) return; // prevent double-join
+    if (loading) return;
     setLoading(true);
     const newDoc = createDoc();
     const room = joinGroup(newDoc, code, {
@@ -76,6 +76,8 @@ function App() {
     await persistDoc(newDoc, code);
     setDoc(newDoc);
     setSync(room);
+    setGroupId(code);
+    window.history.replaceState({}, '', `?group=${code}`);
     setLoading(false);
   };
 
@@ -95,14 +97,12 @@ function App() {
     setDoc(newDoc);
     setSync(room);
     setGroupId(id);
-    // For create, auto-identify — show picker next
     setShowIdentity(true);
     window.history.replaceState({}, '', `?group=${id}`);
     setCreating(false);
   };
 
   const handleActorReady = (member) => {
-    // Normalize to plain object
     const plain = { id: member.id, name: member.name, color: member.color };
     setSelfState(plain);
     saveSelf(groupId, plain);
@@ -137,7 +137,6 @@ function App() {
     return list;
   })();
 
-  // Loading state
   if (loading) {
     return (
       <div className="loading">
@@ -147,14 +146,25 @@ function App() {
     );
   }
 
-  // Landing page — no group yet
+  // Landing page
   if (!doc) {
     return (
       <div style={{ maxWidth: 480, margin: '0 auto', padding: 24 }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <span style={{ fontSize: '3rem', display: 'block', marginBottom: 8 }}>💸</span>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.02em' }}>SplitDumb P2P</h1>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.88rem', marginTop: 4 }}>No server needed. Share a link, split expenses.</p>
+        <div className="hero">
+          <span className="hero-icon">💸</span>
+          <h1 className="hero-title">SplitDumb P2P</h1>
+          <p className="hero-sub">Split expenses with friends — no server, no sign-up, no cost.</p>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title">How it works</div>
+          <ul style={{ fontSize: '0.88rem', color: 'var(--text-dim)', lineHeight: 1.7, paddingLeft: 18 }}>
+            <li>Create a group, share the link — anyone can join</li>
+            <li>Add expenses, split equally or by shares/exact/percentage</li>
+            <li>See who owes what and settle up</li>
+            <li>Data syncs peer-to-peer via WebRTC</li>
+            <li>Saved locally in your browser (IndexedDB)</li>
+          </ul>
         </div>
 
         <div className="card" style={{ marginBottom: 16 }}>
@@ -170,7 +180,7 @@ function App() {
           </button>
         </div>
 
-        <div className="card">
+        <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-title">Or create a new group</div>
           <div className="form-group">
             <input className="form-input" placeholder="Group name (optional)" value={groupName}
@@ -179,6 +189,31 @@ function App() {
           <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handleCreateGroup} disabled={creating}>
             {creating ? 'Creating...' : 'Create Group'}
           </button>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title">Offline-first</div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)', lineHeight: 1.65 }}>
+            <p style={{ marginBottom: 8 }}><strong>At least one user must keep the page open</strong> for the group to stay alive and accept new peers. If everyone closes their browser, the group still exists in each user's local storage — but new visitors won't find any peers to sync with until someone opens the group again.</p>
+            <p style={{ marginBottom: 8 }}><strong>Share the link</strong> — anyone with <code style={{ background: 'var(--surface3)', padding: '2px 6px', borderRadius: 4, fontSize: '0.82rem' }}>?group=CODE</code> can join.</p>
+            <p><strong>Download the app</strong> — save the HTML file below and open it anytime. It works offline and keeps your data in browser storage.</p>
+          </div>
+          <button
+            className="btn btn-secondary"
+            style={{ marginTop: 12 }}
+            onClick={() => {
+              const a = document.createElement('a');
+              a.href = window.location.origin + window.location.pathname;
+              a.download = 'splitdumb-p2p.html';
+              a.click();
+            }}
+          >
+            ⬇ Download SplitDumb P2P
+          </button>
+        </div>
+
+        <div style={{ textAlign: 'center', padding: '16px 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          Built with Yjs + Trystero (WebRTC) · <a href="https://github.com/jzing1468-dev/splitdumb" target="_blank" rel="noopener" style={{ color: 'var(--primary)' }}>Source on GitHub</a>
         </div>
       </div>
     );
