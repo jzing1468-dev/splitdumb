@@ -3,11 +3,6 @@ import { joinRoom } from 'trystero';
 
 let currentRoom = null;
 
-const RELAY_URLS = [
-  'wss://nos.lol',
-  'wss://relay.primal.net',
-];
-
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -24,7 +19,8 @@ export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   }
 
   console.log(`[SplitDumb] Joining room: ${groupId}`);
-  const room = joinRoom({ appId: 'splitdumb-p2p', relayUrls: RELAY_URLS, rtcConfig: RTC_CONFIG }, groupId);
+  // Use Trystero's default Nostr relays (50+ relays, redundancy 5) — much better peer discovery
+  const room = joinRoom({ appId: 'splitdumb-p2p', rtcConfig: RTC_CONFIG }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
   // Broadcast local changes to peers
@@ -57,7 +53,7 @@ export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   // Log current peers periodically
   const peerLogger = setInterval(() => {
     const peers = room.getPeers();
-    console.log(`[SplitDumb] Current peers: ${Object.keys(peers).length}`, peers);
+    console.log(`[SplitDumb] Current peers: ${Object.keys(peers).length}`);
   }, 10000);
 
   currentRoom = room;
