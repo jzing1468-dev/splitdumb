@@ -4,10 +4,11 @@ import { joinRoom } from 'trystero';
 let currentRoom = null;
 
 const RELAY_URLS = [
-  'wss://relay.damus.io',
   'wss://nos.lol',
-  'wss://nostr-03.yakihonne.com',
   'wss://nostr-pub.semisol.dev',
+  'wss://relay.primal.net',
+  'wss://offchain.pub',
+  'wss://nostr.wine',
 ];
 
 const RTC_CONFIG = {
