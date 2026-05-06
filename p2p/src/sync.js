@@ -3,12 +3,26 @@ import { joinRoom } from 'trystero';
 
 let currentRoom = null;
 
+const RELAY_URLS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://nostr-03.yakihonne.com',
+  'wss://nostr-pub.semisol.dev',
+];
+
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ],
+};
+
 export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   if (currentRoom) {
     currentRoom.leave();
   }
 
-  const room = joinRoom({ appId: 'splitdumb-p2p' }, groupId);
+  const room = joinRoom({ appId: 'splitdumb-p2p', relayUrls: RELAY_URLS, rtcConfig: RTC_CONFIG }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
   // Broadcast local changes to peers
