@@ -5,10 +5,7 @@ let currentRoom = null;
 
 const RELAY_URLS = [
   'wss://nos.lol',
-  'wss://nostr-pub.semisol.dev',
   'wss://relay.primal.net',
-  'wss://offchain.pub',
-  'wss://nostr.wine',
 ];
 
 const RTC_CONFIG = {
