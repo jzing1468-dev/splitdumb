@@ -20,6 +20,11 @@ export default defineConfig({
       '@splitdumb/core$': coreSrc + '/index.js',
       '@splitdumb/ui/styles.css': uiSrc + '/styles.css',
       '@splitdumb/ui': uiSrc + '/index.js',
+      // Force single React — resolve from p2p's node_modules for all source paths
+      'react': path.resolve(__dirname, 'node_modules/react'),
+      'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
+      'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime'),
+      'react/jsx-dev-runtime': path.resolve(__dirname, 'node_modules/react/jsx-dev-runtime'),
     }
   },
   build: {

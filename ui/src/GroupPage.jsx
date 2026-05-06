@@ -163,115 +163,91 @@ function GroupPage({
 
   const Header = () => (
     <div className="group-header">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="group-name">{group?.name}</div>
-        </div>
-        {features.admin && isAdmin && (
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-            <span className="badge badge-primary">Admin</span>
-            <button className="btn btn-sm" style={{ background: 'var(--red-dim)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.2)', width: 'auto', padding: '4px 10px', fontSize: '0.8rem' }}
-              onClick={async () => {
-                if (!confirm('Delete this entire group? This cannot be undone.')) return;
-                try { await adapter.deleteGroup(); if (onLeave) onLeave(); }
-                catch (err) { setError(err.message); }
-              }} title="Delete group">🗑 Delete</button>
+      <div className="group-header-row">
+        <div className="group-header-left">
+          <h1 className="group-name">{group?.name}</h1>
+          <div className="group-header-sub">
+            <code>{group?.code}</code>
+            <button className="copy-btn" onClick={copyCode}>{copied ? '✓' : '🔗'}</button>
           </div>
-        )}
-        {onLeave && (
-          <button className="btn btn-sm" style={{ width: 'auto', padding: '4px 10px', fontSize: '0.8rem' }} onClick={onLeave}>← Home</button>
-        )}
-      </div>
-      <div className="group-code">
-        <code>{group?.code}</code>
-        <button className="copy-btn" onClick={copyCode}>{copied ? '✓ Copied' : '🔗 Share'}</button>
+        </div>
+        <div className="group-header-actions">
+          {features.admin && isAdmin && (
+            <button className="btn btn-sm btn-danger-outline" onClick={async () => {
+              if (!confirm('Delete this entire group? This cannot be undone.')) return;
+              try { await adapter.deleteGroup(); if (onLeave) onLeave(); }
+              catch (err) { setError(err.message); }
+            }} title="Delete group">🗑</button>
+          )}
+          {onLeave && (
+            <button className="btn btn-sm btn-ghost" onClick={onLeave}>← Home</button>
+          )}
+        </div>
       </div>
       {extraHeader}
       <div className="actor-badge">
-        <div className="actor-row" style={{ alignItems: 'center' }}>
-          <div className="actor-label" style={{ marginBottom: 0 }}>You are</div>
-          <div style={{ flex: 1 }} />
-          {onSwitchIdentity && (
-            <button className="btn btn-ghost btn-xs" onClick={onSwitchIdentity} style={{ flexShrink: 0, padding: '2px 8px', fontSize: '0.72rem' }}>⇄ Switch</button>
-          )}
-        </div>
-        <div className="actor-row">
-          <span className="member-dot" style={{ background: actor.color || members?.find(m => m.id === actor.id)?.color || '#666' }} />
-          <span className="actor-name">{actor.name}</span>
-        </div>
+        <span className="member-dot" style={{ background: actor.color || members?.find(m => m.id === actor.id)?.color || '#666' }} />
+        <span className="actor-name">{actor.name}</span>
+        {onSwitchIdentity && (
+          <button className="btn btn-ghost btn-xs" onClick={onSwitchIdentity} style={{ marginLeft: 6, padding: '2px 8px', fontSize: '0.72rem' }}>Switch</button>
+        )}
       </div>
     </div>
   );
 
-  const MembersCard = () => (
-    <div className="card">
-      <div className="card-title">Members · {members?.length || 0}</div>
-      <div className="member-chips">
-        {members?.map(m => (
-          <span key={m.id} className="member-chip" style={{ background: m.color + '18', borderColor: m.color + '40' }}>
-            <span className="member-dot" style={{ background: m.color }} />{m.name}
-            {features.admin && isAdmin && adapter.removeMember && <button className="action-btn" onClick={() => removeMember(m.id, m.name)} style={{ padding: '0 4px', marginLeft: 2 }}>✕</button>}
-          </span>
-        ))}
-      </div>
+  const MembersRow = () => (
+    <div className="members-row">
+      {members?.map(m => (
+        <span key={m.id} className="member-chip" style={{ background: m.color + '18', borderColor: m.color + '40' }}>
+          <span className="member-dot" style={{ background: m.color }} />{m.name}
+          {features.admin && isAdmin && adapter.removeMember && <button className="action-btn" onClick={() => removeMember(m.id, m.name)} style={{ padding: '0 4px', marginLeft: 2 }}>✕</button>}
+        </span>
+      ))}
       {showAddMember ? (
-        <div className="add-member-row" style={{ flexDirection: 'column', gap: 8 }}>
-          <input className="form-input" style={{ width: '100%', padding: '10px 12px' }} placeholder="Name" value={newMember} onChange={e => setNewMember(e.target.value)} maxLength={30}
+        <span className="member-chip" style={{ background: 'var(--surface2)', borderColor: 'var(--border)' }}>
+          <input className="form-input" style={{ width: 80, padding: '2px 6px', fontSize: '0.8rem' }} placeholder="Name" value={newMember} onChange={e => setNewMember(e.target.value)} maxLength={30}
             onKeyDown={e => e.key === 'Enter' && addMember()} autoFocus />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary btn-sm" style={{ flex: 1, width: 'auto' }} onClick={addMember}>Add</button>
-            <button className="btn btn-secondary btn-sm" style={{ flex: 1, width: 'auto' }} onClick={() => { setShowAddMember(false); setNewMember(''); }}>Cancel</button>
-          </div>
-        </div>
+          <button className="btn btn-primary btn-xs" style={{ padding: '2px 6px' }} onClick={addMember}>✓</button>
+          <button className="btn btn-ghost btn-xs" style={{ padding: '2px 6px' }} onClick={() => { setShowAddMember(false); setNewMember(''); }}>✗</button>
+        </span>
       ) : (
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => setShowAddMember(true)}>+ Add member</button>
+        <button className="btn btn-ghost btn-xs member-add-btn" onClick={() => setShowAddMember(true)}>+ Add</button>
       )}
     </div>
   );
 
-  const SummaryCard = () => (
-    <div className="card">
-      <div className="card-title">Summary</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span style={{ color: 'var(--text-dim)', fontSize: '0.88rem' }}>Total spent</span>
-        <span style={{ fontWeight: 800, fontSize: '1.35rem', letterSpacing: '-0.02em' }}>${totalSpent.toFixed(2)}</span>
+  const BalanceBar = () => (
+    <div className="balance-bar">
+      <div className="balance-bar-total">
+        <span style={{ color: 'var(--text-dim)', fontSize: '0.78rem' }}>Total</span>
+        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${totalSpent.toFixed(2)}</span>
       </div>
-      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {members?.map(m => {
-          const bal = balances?.[m.id]?.balance || 0;
-          return (
-            <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', fontSize: '0.88rem', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <span className="member-dot" style={{ background: m.color }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
-              </span>
-              <span style={{ fontWeight: 600, flexShrink: 0 }} className={bal > 0.005 ? 'balance-positive' : bal < -0.005 ? 'balance-negative' : 'balance-zero'}>
-                {bal > 0.005 ? '+' : ''}{bal.toFixed(2)}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      {members?.map(m => {
+        const bal = balances?.[m.id]?.balance || 0;
+        return (
+          <span key={m.id} className="balance-chip" style={{ background: m.color + '12' }}>
+            <span className="member-dot" style={{ background: m.color }} />
+            <span className="balance-chip-name">{m.name}</span>
+            <span className={bal > 0.005 ? 'balance-positive' : bal < -0.005 ? 'balance-negative' : 'balance-zero'} style={{ fontWeight: 600, fontSize: '0.82rem' }}>
+              {bal > 0.005 ? '+' : ''}{bal.toFixed(2)}
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 
-  const Sidebar = () => (
-    <>
-      <Header />
-      <MembersCard />
-      <SummaryCard />
-    </>
-  );
+
 
   const editingExpense = editingExpenseId ? expenses?.find(e => e.id === editingExpenseId) : null;
 
   return (
     <div className="page">
-      <div className="group-layout">
-        <div className="group-sidebar">
-          <Sidebar />
-        </div>
+      <Header />
+      <MembersRow />
+      <BalanceBar />
 
-        <div className="group-main">
+      <div className="group-content">
           <div className="tabs">
             <button className={`tab ${tab === 'expenses' ? 'active' : ''}`} onClick={() => setTab('expenses')}>Expenses</button>
             <button className={`tab ${tab === 'debts' ? 'active' : ''}`} onClick={() => setTab('debts')}>Settle Up</button>
@@ -484,7 +460,6 @@ function GroupPage({
             </div>
           )}
         </div>
-      </div>
 
       {showAddExpense && (
         <AddExpense

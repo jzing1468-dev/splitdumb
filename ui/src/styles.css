@@ -352,39 +352,13 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   padding: 0 0 24px;
 }
 
-/* ── Group Header ── */
-
-.group-header {
-  padding: 20px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
+/* ── Group Header (shared base — extended in layout section) ── */
 
 .group-name {
   font-size: 1.4rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   margin-bottom: 2px;
-}
-
-.group-code {
-  font-size: 0.82rem;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 2px;
-}
-
-.group-code code {
-  background: var(--surface2);
-  padding: 3px 10px;
-  border-radius: var(--radius-xs);
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  color: var(--primary);
-  letter-spacing: 0.06em;
-  font-weight: 600;
 }
 
 .copy-btn {
@@ -403,49 +377,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   background: var(--primary-dim);
 }
 
-/* ── Actor badge ── */
-
-.actor-badge {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: var(--surface2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-}
-
-.actor-label {
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-
-.actor-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.actor-name {
-  flex: 1;
-  min-width: 0;
-  font-weight: 600;
-  font-size: 0.9rem;
-  line-height: 1.3;
-  word-break: break-word;
-}
-
 /* ── Member chips ── */
-
-.member-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 
 .member-chip {
   display: inline-flex;
@@ -1044,101 +976,143 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .badge-danger  { background: var(--red-dim); color: var(--red); }
 .badge-success { background: var(--green-dim); color: var(--green); }
 
-/* ── Responsive two-column layout (group page) ── */
+/* ── Group page: single-column layout ── */
 
-.group-layout {
+.group-header {
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.group-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.group-header-left {
+  min-width: 0;
+  flex: 1;
+}
+
+.group-header-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.group-header-sub code {
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--primary);
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.group-header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.actor-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--surface2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  margin-top: 12px;
+  width: fit-content;
+}
+
+.actor-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+/* Members row */
+.members-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface);
+}
+
+.member-add-btn {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-full);
+}
+
+/* Balance bar */
+.balance-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-warm);
+}
+
+.balance-bar-total {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+  margin-right: 2px;
+}
+
+.balance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+}
+
+.balance-chip-name {
+  font-weight: 500;
+}
+
+/* Content area (tabs + tab panels) */
+.group-content {
   display: flex;
   flex-direction: column;
 }
 
-.group-sidebar {
-  display: flex;
-  flex-direction: column;
-}
-
-.group-main {
-  display: flex;
-  flex-direction: column;
-}
-
-@media (min-width: 768px) {
-  .group-layout {
-    flex-direction: row;
-    gap: 0;
-  }
-  
-  .group-sidebar {
-    width: 280px;
-    flex-shrink: 0;
-    border-right: 1px solid var(--border);
-    min-height: calc(100vh - 60px);
-    background: var(--surface);
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-
-  .group-sidebar .card {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--border);
-    margin: 0;
-    border-radius: 0;
-    padding: 20px 24px;
-  }
-
-  .group-sidebar .group-code {
-    flex-wrap: nowrap;
-    min-width: 0;
-  }
-
-  .group-sidebar .group-code code {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .group-sidebar .group-name {
-    word-break: break-word;
-  }
-
-  .group-sidebar .actor-badge {
-    min-width: 0;
-  }
-
-  .group-sidebar .actor-name {
-    font-size: 0.95rem;
-  }
-
-  .group-sidebar .copy-btn {
-    flex-shrink: 0;
-  }
-
-  .group-main {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .group-header-desktop {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-  }
-}
-
-@media (min-width: 1200px) {
-  .group-sidebar {
-    width: 300px;
-  }
-}
-
-/* ── Layout: sidebar header at desktop ── */
-
+/* Desktop refinements */
 @media (min-width: 768px) {
   .group-header {
-    padding: 24px;
+    padding: 24px 28px;
   }
+
   .group-name {
     font-size: 1.6rem;
+  }
+
+  .members-row {
+    padding: 14px 28px;
+  }
+
+  .balance-bar {
+    padding: 14px 28px;
+  }
+
+  .group-content {
+    max-width: 720px;
+    margin: 0 auto;
   }
 }
 
@@ -1146,6 +1120,31 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .group-name {
     font-size: 1.8rem;
   }
+
+  .group-header {
+    padding: 28px 32px;
+  }
+
+  .members-row {
+    padding: 16px 32px;
+  }
+
+  .balance-bar {
+    padding: 16px 32px;
+  }
+
+  .group-content {
+    max-width: 860px;
+  }
+}
+
+.btn-danger-outline {
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  width: auto;
+  padding: 4px 10px;
+  font-size: 0.8rem;
 }
 
 /* ── Number input custom buttons ── */
