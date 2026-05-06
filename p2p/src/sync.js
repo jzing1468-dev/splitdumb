@@ -3,24 +3,14 @@ import { joinRoom } from 'trystero';
 
 let currentRoom = null;
 
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'turn:staticauth.openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayprojectsecret' },
-    { urls: 'turn:staticauth.openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayprojectsecret' },
-    { urls: 'turns:staticauth.openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayprojectsecret' },
-  ],
-};
-
 export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   if (currentRoom) {
     currentRoom.leave();
   }
 
   console.log(`[SplitDumb] Joining room: ${groupId}`);
-  // Use Trystero's default Nostr relays (50+ relays, redundancy 5) — much better peer discovery
-  const room = joinRoom({ appId: 'splitdumb-p2p', rtcConfig: RTC_CONFIG }, groupId);
+  // Use Trystero's default Nostr relays (50+ relays, redundancy 5) and default ICE config
+  const room = joinRoom({ appId: 'splitdumb-p2p' }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
   // Broadcast local changes to peers
