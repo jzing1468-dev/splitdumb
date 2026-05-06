@@ -59,7 +59,26 @@ function App() {
         setSelfState(saved);
         setShowIdentity(false);
       } else {
-        setShowIdentity(true);
+        // If we're joining an existing group (via URL), wait a bit for remote data
+        // before showing the identity picker, so we can see existing members
+        const params = new URLSearchParams(window.location.search);
+        const isJoining = !!params.get('group');
+        if (isJoining && !doc.getMap('members').size) {
+          // No members yet — wait up to 8s for remote sync
+          const timer = setTimeout(() => setShowIdentity(true), 8000);
+          // Show early if members appear from remote sync
+          const observer = () => {
+            if (doc.getMap('members').size > 0) {
+              clearTimeout(timer);
+              doc.getMap('members').unobserve(observer);
+              setShowIdentity(true);
+            }
+          };
+          doc.getMap('members').observe(observer);
+          return () => { clearTimeout(timer); doc.getMap('members').unobserve(observer); };
+        } else {
+          setShowIdentity(true);
+        }
       }
     }
   }, [groupId, doc]);
@@ -218,6 +237,18 @@ function App() {
         <div style={{ textAlign: 'center', padding: '16px 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
           Built with Yjs + Trystero (WebRTC) · <a href="https://github.com/jzing1468-dev/splitdumb" target="_blank" rel="noopener" style={{ color: 'var(--primary)' }}>Source on GitHub</a>
         </div>
+      </div>
+    );
+  }
+
+  // Waiting for remote sync (joining via URL, no members yet)
+  if (doc && !showIdentity && !self && !memberList.length) {
+    const groupName = doc.getMap('meta')?.get('name');
+    return (
+      <div className="loading">
+        <div className="spinner" />
+        <p>{groupName ? `Joining ${groupName}...` : `Connecting to group ${groupId}...`}</p>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: 8 }}>Waiting for peers to sync</p>
       </div>
     );
   }
