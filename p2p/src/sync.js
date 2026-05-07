@@ -9,8 +9,16 @@ export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   }
 
   console.log(`[SplitDumb] Joining room: ${groupId}`);
-  // Use Trystero Torrent strategy (WebTorrent trackers) for peer discovery
-  const room = joinRoom({ appId: 'splitdumb-p2p' }, groupId);
+  // Use Trystero Torrent strategy with reliable trackers
+  const room = joinRoom({
+    appId: 'splitdumb-p2p',
+    relayUrls: [
+      'wss://tracker.openwebtorrent.com',
+      'wss://tracker.webtorrent.dev',
+      'wss://tracker.btorrent.xyz',
+    ],
+    relayRedundancy: 2,
+  }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
   // Broadcast local changes to peers
