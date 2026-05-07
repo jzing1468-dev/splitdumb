@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { joinRoom } from 'trystero';
+import { joinRoom } from '@trystero-p2p/torrent';
 
 let currentRoom = null;
 
@@ -9,7 +9,7 @@ export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   }
 
   console.log(`[SplitDumb] Joining room: ${groupId}`);
-  // Use Trystero's default Nostr relays (50+ relays, redundancy 5) and default ICE config
+  // Use Trystero Torrent strategy (WebTorrent trackers) for peer discovery
   const room = joinRoom({ appId: 'splitdumb-p2p' }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
