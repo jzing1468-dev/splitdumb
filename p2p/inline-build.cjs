@@ -14,13 +14,13 @@ if (cssMatch) {
   result = result.replace(/<link[^>]*rel="stylesheet"[^>]*>/, '<style>' + css + '</style>');
 }
 
-// Inline JS files
+// Inline JS files — preserve type="module" for ES module syntax
 const jsMatches = [...result.matchAll(/src="(\.\/assets\/[^"]+\.js)"/g)];
 for (const m of jsMatches) {
   const file = m[1].replace('./', '');
   const js = fs.readFileSync('dist-single/' + file, 'utf8');
   const escaped = m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  result = result.replace(new RegExp('<script[^>]*src="' + escaped + '"[^>]*></script>'), '<script>' + js + '</script>');
+  result = result.replace(new RegExp('<script[^>]*src="' + escaped + '"[^>]*></script>'), '<script type="module">' + js + '</script>');
 }
 
 fs.writeFileSync('dist-single/index-inline.html', result);
