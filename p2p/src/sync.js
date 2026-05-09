@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { joinRoom } from '@trystero-p2p/torrent';
+import { joinRoom } from '@trystero-p2p/nostr';
 
 let currentRoom = null;
 
@@ -9,14 +9,10 @@ export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   }
 
   console.log(`[SplitDumb] Joining room: ${groupId}`);
-  // Use Trystero Torrent strategy with openwebtorrent tracker
-  // Only tracker.openwebtorrent.com is reliably alive (others are dead/broken)
+  // Use Trystero Nostr strategy — hundreds of relays, no single point of failure
+  // No custom relayUrls needed; defaults include 20+ Nostr relays
   const room = joinRoom({
     appId: 'splitdumb-p2p',
-    relayUrls: [
-      'wss://tracker.openwebtorrent.com',
-    ],
-    relayRedundancy: 1,
   }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
