@@ -3,15 +3,22 @@ import { joinRoom } from '@trystero-p2p/torrent';
 
 let currentRoom = null;
 
+// Only use verified-reachable WebTorrent trackers
+// Default list includes dead/unreachable trackers that cause connection failures
+const TRACKER_URLS = [
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.openwebtorrent.com',
+];
+
 export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   if (currentRoom) {
     currentRoom.leave();
   }
 
   console.log(`[SplitDumb] Joining room: ${groupId}`);
-  // Use Trystero Torrent strategy — WebTorrent trackers, more reliable than Nostr
   const room = joinRoom({
     appId: 'splitdumb-p2p',
+    relayUrls: TRACKER_URLS,
   }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
