@@ -18,7 +18,7 @@ export function joinGroup(doc, groupId, { onPeerJoin, onPeerLeave, onSynced }) {
   console.log(`[SplitDumb] Joining room: ${groupId}`);
   const room = joinRoom({
     appId: 'splitdumb-p2p',
-    relayUrls: TRACKER_URLS,
+    relayConfig: { urls: TRACKER_URLS },
   }, groupId);
   const [sendUpdate, getUpdate] = room.makeAction('docUpdate');
 
