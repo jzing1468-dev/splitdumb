@@ -10,7 +10,7 @@
   "dependencies": {
     "@splitdumb/core": "file:../core",
     "@splitdumb/ui": "file:../ui",
-    "@trystero-p2p/nostr": "^0.24.0",
+    "@trystero-p2p/torrent": "^0.24.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "y-indexeddb": "^9.0.12",

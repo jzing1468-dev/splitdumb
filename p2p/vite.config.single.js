@@ -30,6 +30,6 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['y-indexeddb', 'yjs', '@trystero-p2p/nostr'],
+    include: ['y-indexeddb', 'yjs', '@trystero-p2p/torrent'],
   },
 });
