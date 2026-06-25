@@ -420,8 +420,99 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   padding: 14px 0;
   border-bottom: 1px solid var(--border);
   gap: 12px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.expense-item:hover {
+  background: var(--surface2);
+}
+.expense-item.expanded {
+  background: var(--surface2);
 }
 .expense-item:last-child { border-bottom: none; }
+
+.expense-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.expense-chevron {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+  user-select: none;
+}
+
+.expense-expanded {
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.expense-detail-section {
+  margin-bottom: 10px;
+}
+
+.expense-detail-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.expense-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  gap: 8px;
+}
+
+.expense-detail-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.expense-detail-share {
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.expense-detail-notes {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 4px 8px;
+  background: var(--surface);
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+}
+
+.expense-actions-expanded {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.expense-actions-expanded .action-btn {
+  font-size: 0.78rem;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+}
 
 .expense-left {
   display: flex;
@@ -531,15 +622,33 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 .debt-row:last-child { border-bottom: none; }
 
+.debt-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .debt-who {
   font-size: 0.9rem;
   min-width: 0;
+  color: var(--text);
 }
+
 .debt-amount {
   font-weight: 600;
   font-size: 0.95rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.debt-pay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 @media (min-width: 1200px) {
@@ -1155,3 +1264,384 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 /* ── Identity picker ── */
 /* Uses existing member chips / cards — no custom classes needed */
+
+/* ── Payment links in debt rows ── */
+
+.pay-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pay-venmo {
+  background: #3d95ce;
+  color: #fff;
+}
+
+.pay-venmo:hover, .pay-venmo:active {
+  background: #2d7bae;
+}
+
+.pay-zelle {
+  background: var(--surface3);
+  color: var(--text-dim);
+}
+
+.pay-zelle:hover, .pay-zelle:active {
+  background: var(--border-strong);
+}
+
+.pay-zelle-info {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  background: var(--surface3);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* ── Profile edit modal ── */
+.profile-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-edit-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ── Phase C: Design Polish ── */
+
+/* ── Card Redesign: elevated, softer ── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin: 10px 16px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), border-color var(--transition), transform var(--transition);
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+/* ── Animations ── */
+
+/* Tab panel transition */
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tab-panel {
+  animation: tabFadeIn 0.18s ease;
+}
+
+/* Modal entrance: scale + fade */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal {
+  animation: modalIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Modal exit */
+.modal-backdrop.closing {
+  animation: fadeIn 0.15s ease reverse;
+}
+.modal-backdrop.closing .modal {
+  animation: modalIn 0.15s ease reverse;
+}
+
+/* Expense expand/collapse */
+.expense-expanded {
+  animation: expandDown 0.2s ease;
+  overflow: hidden;
+}
+@keyframes expandDown {
+  from { opacity: 0; max-height: 0; }
+  to   { opacity: 1; max-height: 600px; }
+}
+
+/* List item slide-in */
+@keyframes slideInList {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.expense-item,
+.settlement-item,
+.debt-row {
+  animation: slideInList 0.22s ease both;
+}
+
+/* Chevron rotation */
+.expense-chevron {
+  transition: transform var(--transition);
+}
+.expense-item.expanded .expense-chevron {
+  transform: rotate(90deg);
+}
+
+/* Button press feedback */
+.btn {
+  transition: all var(--transition), transform 0.08s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 117, 222, 0.25), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.btn-primary:active {
+  transform: scale(0.97) translateY(0);
+}
+
+/* ── Skeleton Loading ── */
+
+@keyframes shimmer {
+  0%   { background-position: -300% 0; }
+  100% { background-position: 300% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface2) 25%,
+    var(--surface3) 50%,
+    var(--surface2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+}
+
+/* Skeleton: balance bar */
+.skeleton-balance-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-warm);
+}
+.skeleton-balance-bar .skeleton {
+  height: 32px;
+  border-radius: var(--radius-full);
+}
+.skeleton-balance-total {
+  width: 70px;
+}
+.skeleton-balance-chip {
+  width: 90px;
+}
+
+/* Skeleton: member chips */
+.skeleton-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface);
+}
+.skeleton-members .skeleton {
+  height: 30px;
+  border-radius: var(--radius-full);
+  width: 80px;
+}
+
+/* Skeleton: expense rows */
+.skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 16px;
+  margin: 8px 16px;
+  box-shadow: var(--shadow-sm);
+}
+.skeleton-expense-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.skeleton-expense-row:last-child {
+  border-bottom: none;
+}
+.skeleton-expense-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.skeleton-line {
+  height: 12px;
+  border-radius: var(--radius-xs);
+}
+.skeleton-line.w-60 { width: 60%; }
+.skeleton-line.w-40 { width: 40%; }
+.skeleton-line.w-80 { width: 80%; }
+.skeleton-line.w-30 { width: 30%; }
+.skeleton-expense-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* Skeleton: group header */
+.skeleton-header {
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.skeleton-header .skeleton {
+  margin-bottom: 8px;
+}
+
+/* ── Responsive Polish ── */
+
+/* Mobile: < 640px */
+@media (max-width: 639px) {
+  /* Stack balance bar vertically */
+  .balance-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .balance-bar-total {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: 8px;
+    margin-right: 0;
+  }
+  .balance-chip {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Reduce padding */
+  .card {
+    margin: 8px 12px;
+    padding: 14px;
+  }
+  .group-header {
+    padding: 16px 14px;
+  }
+  .members-row {
+    padding: 12px 14px;
+  }
+
+  /* Full-width buttons */
+  .btn {
+    width: 100%;
+  }
+  .btn-ghost,
+  .btn-sm,
+  .btn-xs {
+    width: auto;
+  }
+
+  /* Modal: full-width, scrollable */
+  .modal {
+    margin: 0;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+    animation: modalSlideUp 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .modal-backdrop {
+    align-items: flex-end;
+  }
+  @keyframes modalSlideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  /* Touch targets: min 44px */
+  .tab {
+    padding: 14px 8px;
+    min-height: 44px;
+  }
+  .member-chip {
+    padding: 8px 14px;
+    min-height: 36px;
+  }
+  .expense-item {
+    min-height: 44px;
+    padding: 12px 0;
+  }
+  .btn-icon {
+    width: 44px;
+    height: 44px;
+  }
+  .action-btn {
+    padding: 8px 12px;
+    min-height: 36px;
+  }
+  .copy-btn {
+    padding: 6px 12px;
+    min-height: 36px;
+  }
+  .modal-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Debt rows: stack payment buttons below on narrow screens */
+  .debt-row {
+    flex-wrap: wrap;
+  }
+  .debt-pay {
+    width: 100%;
+    justify-content: flex-start;
+    padding-top: 4px;
+  }
+  .pay-link {
+    width: auto;
+  }
+}
+
+/* Tablet: 640–1024px */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .balance-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .group-content {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .card {
+    margin: 10px 20px;
+  }
+}
+
+/* Desktop: ensure touch targets don't shrink below 40px */
+@media (min-width: 1024px) {
+  .tab {
+    min-height: 40px;
+  }
+  .expense-item {
+    min-height: 40px;
+  }
+}

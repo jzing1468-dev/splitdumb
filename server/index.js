@@ -145,8 +145,8 @@ app.get('/api/v1/auth/me', requireAuth, (req, res) => {
 // Logout: clear the session cookie (same-origin, reliable in all browsers)
 app.post('/api/v1/auth/logout', (req, res) => {
   res.setHeader('Set-Cookie', [
-    `splitdumb_session=`,
-    `Domain=${process.env.COOKIE_DOMAIN || '.example.com'}`,
+    `johnzhong_session=`,
+    `Domain=${process.env.COOKIE_DOMAIN || '.johnzhong.win'}`,
     `Path=/`,
     `HttpOnly`,
     `Secure`,
@@ -326,6 +326,79 @@ app.post('/api/v1/groups/:code/members', (req, res) => {
     res.status(201).json(member);
   } catch (err) {
     res.status(500).json({ error: 'Failed to add member' });
+  }
+});
+
+// Edit member profile (name, venmo, zelle)
+app.patch('/api/v1/groups/:code/members/:id', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const member = prepare('SELECT * FROM members WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  if (!member) return res.status(404).json({ error: 'Member not found' });
+
+  const { name, venmo_link, zelle_handle } = req.body;
+  const updates = [];
+  const values = [];
+  const changes = {};
+
+  if (name !== undefined) {
+    if (!name || name.trim().length === 0 || name.trim().length > 30) {
+      return res.status(400).json({ error: 'Member name must be 1-30 characters' });
+    }
+    const existing = prepare('SELECT id FROM members WHERE group_id = ? AND LOWER(name) = LOWER(?) AND id != ?').get(group.id, name.trim(), req.params.id);
+    if (existing) {
+      return res.status(409).json({ error: 'That name is already in this group' });
+    }
+    updates.push('name = ?');
+    values.push(name.trim());
+    changes.name = { from: member.name, to: name.trim() };
+  }
+
+  if (venmo_link !== undefined) {
+    // Accept venmo.com/username, @username, full URL, or empty string to clear
+    let normalized = venmo_link ? venmo_link.trim() : null;
+    if (normalized) {
+      // Normalize to venmo.com/username format
+      if (normalized.startsWith('@')) {
+        normalized = 'venmo.com/' + normalized.slice(1);
+      } else if (!normalized.startsWith('http') && !normalized.startsWith('venmo.com')) {
+        normalized = 'venmo.com/' + normalized;
+      }
+      // Strip https?:// prefix for consistent storage
+      normalized = normalized.replace(/^https?:\/\/(www\.)?/, '');
+      // Basic validation: must contain venmo.com/
+      if (!/^venmo\.com\/[A-Za-z0-9_.-]+$/.test(normalized)) {
+        return res.status(400).json({ error: 'Venmo link must be a venmo.com/username URL or @username' });
+      }
+    }
+    updates.push('venmo_link = ?');
+    values.push(normalized);
+    changes.venmo_link = normalized ? '***' : null;
+  }
+
+  if (zelle_handle !== undefined) {
+    const normalized = zelle_handle ? zelle_handle.trim() : null;
+    if (normalized && normalized.length > 100) {
+      return res.status(400).json({ error: 'Zelle handle too long' });
+    }
+    updates.push('zelle_handle = ?');
+    values.push(normalized);
+    changes.zelle_handle = normalized ? '***' : null;
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No fields to update' });
+  }
+
+  try {
+    prepare(`UPDATE members SET ${updates.join(', ')} WHERE id = ?`).run(...values, req.params.id);
+    saveDb();
+    auditLog(req, 'update', 'member', req.params.id, changes);
+    const updated = prepare('SELECT * FROM members WHERE id = ?').get(req.params.id);
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update member' });
   }
 });
 

@@ -70,6 +70,7 @@ function Group() {
     editExpense: async (id, data) => api.editExpense(code, id, data),
     deleteExpense: async (id) => api.deleteExpense(code, id),
     addMember: async (name) => api.addMember(code, name),
+    editMember: async (id, data) => api.editMember(code, id, data),
     addSettlement: async (data) => api.addSettlement(code, data),
     confirmSettlement: async (id) => api.confirmSettlement(code, id, 'confirmed'),
     disputeSettlement: async (id) => api.confirmSettlement(code, id, 'disputed'),

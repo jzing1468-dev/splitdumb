@@ -7,7 +7,7 @@ export function removeRecentGroup(code) {
   localStorage.setItem('splitdumb_groups', JSON.stringify(filtered));
 }
 
-export const AUTH_SERVICE = import.meta.env.VITE_AUTH_SERVICE || 'http://localhost:5173';
+export const AUTH_SERVICE = import.meta.env.VITE_AUTH_SERVICE || 'https://auth.johnzhong.win';
 
 /** Clear session-related client state (not recent groups). */
 export function clearAuthState() {
@@ -71,6 +71,7 @@ export const api = {
   updateGroup: (code, data) => request(`/groups/${code}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   addMember: (code, name) => memberRequest(code, `/groups/${code}/members`, { method: 'POST', body: JSON.stringify({ name }) }),
+  editMember: (code, id, data) => memberRequest(code, `/groups/${code}/members/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   removeMember: (code, id, force = false) => memberRequest(code, `/groups/${code}/members/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
 
   addExpense: (code, data) => memberRequest(code, `/groups/${code}/expenses`, { method: 'POST', body: JSON.stringify(data) }),

@@ -5,10 +5,10 @@ if (!AUTH_SECRET) throw new Error('AUTH_SECRET env var is required');
 const SECRET = new TextEncoder().encode(AUTH_SECRET);
 
 // Auth service URL — must be configured via AUTH_SERVICE env var
-const AUTH_SERVICE = process.env.AUTH_SERVICE || 'https://auth.example.com';
+const AUTH_SERVICE = process.env.AUTH_SERVICE || 'https://auth.johnzhong.win';
 
 // Auth service cookie name (configurable domain)
-const COOKIE_NAME = 'splitdumb_session';
+const COOKIE_NAME = 'johnzhong_session';
 
 function parseCookies(cookieHeader) {
   const cookies = {};

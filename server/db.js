@@ -208,6 +208,14 @@ async function init() {
     db.run('ALTER TABLE expenses ADD COLUMN shares_data TEXT');
   } catch (e) { /* Column already exists */ }
 
+  // Migration: add profile columns to members for payment methods
+  try {
+    db.run('ALTER TABLE members ADD COLUMN venmo_link TEXT');
+  } catch (e) { /* Column already exists */ }
+  try {
+    db.run('ALTER TABLE members ADD COLUMN zelle_handle TEXT');
+  } catch (e) { /* Column already exists */ }
+
   // Migration: drop items_data column (SQLite can't DROP COLUMN, so we null it out)
   try {
     db.run("UPDATE expenses SET items_data = NULL WHERE items_data IS NOT NULL");

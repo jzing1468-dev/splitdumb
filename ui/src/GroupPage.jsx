@@ -3,6 +3,7 @@ import { CATEGORY_MAP } from '@splitdumb/core/categories';
 import AddExpense from './AddExpense';
 import AddSettlement from './AddSettlement';
 import IdentityPicker from './IdentityPicker';
+import ProfileEdit from './ProfileEdit';
 
 /**
  * Shared GroupPage — pure React, receives data and callbacks as props.
@@ -43,6 +44,7 @@ function GroupPage({
   isAdmin,
   auditEntries,
   onRefresh,
+  loading = false,
 }) {
   const [tab, setTab] = useState('expenses');
   const [newMember, setNewMember] = useState('');
@@ -56,6 +58,9 @@ function GroupPage({
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [showActorPicker, setShowActorPicker] = useState(false);
+  const [expandedExpenseId, setExpandedExpenseId] = useState(null);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [copiedPay, setCopiedPay] = useState(null);
 
   // Hooks must be called unconditionally (before any early return)
   const filteredExpenses = useMemo(() => {
@@ -82,6 +87,63 @@ function GroupPage({
     return exps;
   }, [expenses, searchQuery, filterCategory, activeFilters, actor]);
 
+  // ── Skeleton components ──
+
+  const SkeletonHeader = () => (
+    <div className="skeleton-header">
+      <div className="skeleton skeleton-line w-60" style={{ height: 24, marginBottom: 10 }} />
+      <div className="skeleton skeleton-line w-30" style={{ height: 14 }} />
+    </div>
+  );
+
+  const SkeletonMembers = () => (
+    <div className="skeleton-members">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="skeleton" style={{ width: 70 + (i % 2) * 20 }} />
+      ))}
+    </div>
+  );
+
+  const SkeletonBalanceBar = () => (
+    <div className="skeleton-balance-bar">
+      <div className="skeleton skeleton-balance-total" />
+      {[0, 1, 2].map(i => (
+        <div key={i} className="skeleton skeleton-balance-chip" style={{ width: 80 + i * 15 }} />
+      ))}
+    </div>
+  );
+
+  const SkeletonExpenseList = () => (
+    <div className="skeleton-card">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="skeleton-expense-row">
+          <div className="skeleton-expense-left">
+            <div className="skeleton skeleton-line w-60" />
+            <div className="skeleton skeleton-line w-40" style={{ height: 10 }} />
+          </div>
+          <div className="skeleton-expense-right">
+            <div className="skeleton skeleton-line w-30" style={{ width: 50 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const SkeletonGroupPage = () => (
+    <div className="page">
+      <SkeletonHeader />
+      <SkeletonMembers />
+      <SkeletonBalanceBar />
+      <div className="group-content">
+        <div className="tabs">
+          <div className="skeleton" style={{ flex: 1, height: 44, margin: '0 4px' }} />
+          <div className="skeleton" style={{ flex: 1, height: 44, margin: '0 4px' }} />
+        </div>
+        <SkeletonExpenseList />
+      </div>
+    </div>
+  );
+
   // If no actor, show identity picker
   if (!actor) {
     return (
@@ -97,6 +159,11 @@ function GroupPage({
         onBack={onLeave}
       />
     );
+  }
+
+  // Loading state: show skeletons
+  if (loading) {
+    return <SkeletonGroupPage />;
   }
 
   const shareUrl = `${window.location.origin}${window.location.pathname}?group=${encodeURIComponent(group.code)}`;
@@ -188,8 +255,11 @@ function GroupPage({
       <div className="actor-badge">
         <span className="member-dot" style={{ background: actor.color || members?.find(m => m.id === actor.id)?.color || '#666' }} />
         <span className="actor-name">{actor.name}</span>
+        {adapter.editMember && (
+          <button className="btn btn-ghost btn-xs" onClick={() => setShowProfileEdit(true)} style={{ marginLeft: 4, padding: '2px 8px', fontSize: '0.72rem' }}>Edit Profile</button>
+        )}
         {onSwitchIdentity && (
-          <button className="btn btn-ghost btn-xs" onClick={onSwitchIdentity} style={{ marginLeft: 6, padding: '2px 8px', fontSize: '0.72rem' }}>Switch</button>
+          <button className="btn btn-ghost btn-xs" onClick={onSwitchIdentity} style={{ marginLeft: 4, padding: '2px 8px', fontSize: '0.72rem' }}>Switch</button>
         )}
       </div>
     </div>
@@ -259,6 +329,7 @@ function GroupPage({
           {error && <div className="error" style={{ margin: '10px 16px' }}>{error}</div>}
 
           {tab === 'expenses' && (
+            <div className="tab-panel" key="expenses-panel">
             <>
               {features.searchFilter && (expenses || []).length > 0 && (
                 <div style={{ padding: '10px 16px 0' }}>
@@ -312,50 +383,140 @@ function GroupPage({
                 </div>
               ) : (
                 <div className="card" style={{ padding: '6px 16px', marginTop: 8 }}>
-                  {filteredExpenses.map(e => (
-                    <div key={e.id} className="expense-item">
-                      <div className="expense-left">
-                        <div className="expense-desc">{e.description}</div>
-                        {e.category && (
-                          <span style={{
-                            display: 'inline-block',
-                            fontSize: '0.68rem',
-                            fontWeight: 600,
-                            color: CATEGORY_MAP[e.category]?.color || 'var(--text-muted)',
-                            background: (CATEGORY_MAP[e.category]?.color || 'var(--text-muted)') + '18',
-                            padding: '1px 8px',
-                            borderRadius: 'var(--radius-full)',
-                            marginTop: 3,
-                          }}>
-                            {CATEGORY_MAP[e.category]?.label || e.category}
-                          </span>
-                        )}
-                        {e.notes && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>
-                            {e.notes}
+                  {filteredExpenses.map(e => {
+                    const isExpanded = expandedExpenseId === e.id;
+                    const splitTypeLabel = { equal: 'Equal', shares: 'Shares', nights: 'Per Day', exact: 'Exact', percentage: '%' }[getExpenseSplitType(e)] || getExpenseSplitType(e);
+                    let payersData = null;
+                    if (getExpensePayerIsMulti(e) && e.payers_data) {
+                      try { payersData = typeof e.payers_data === 'string' ? JSON.parse(e.payers_data) : e.payers_data; } catch (_) { payersData = null; }
+                    }
+                    return (
+                    <div key={e.id}>
+                      <div
+                        className={`expense-item ${isExpanded ? 'expanded' : ''}`}
+                        onClick={() => setExpandedExpenseId(prev => prev === e.id ? null : e.id)}
+                      >
+                        <div className="expense-left">
+                          <div className="expense-desc">{e.description}</div>
+                          <div className="expense-meta">
+                            {getExpensePayerIsMulti(e) ? <span>Paid by: {e.payer_name}</span> : getExpensePayerName(e)} · {splitTypeLabel} · {e.date}
+                            {getExpenseSplitType(e) === 'nights' && getExpenseDateRange(e) && ` · ${new Date(getExpenseDateRange(e) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}→${new Date(getExpenseDateRangeEnd(e) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                           </div>
-                        )}
-                        <div className="expense-meta">
-                          {getExpensePayerIsMulti(e) ? <span>Paid by: {e.payer_name}</span> : getExpensePayerName(e)} · {{ equal: 'Equal', shares: 'Shares', nights: 'Per Day', exact: 'Exact', percentage: '%' }[getExpenseSplitType(e)] || getExpenseSplitType(e)} · {e.date}
-                          {getExpenseSplitType(e) === 'nights' && getExpenseDateRange(e) && ` · ${new Date(getExpenseDateRange(e) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}→${new Date(getExpenseDateRangeEnd(e) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                        </div>
+                        <div className="expense-right">
+                          <div className="expense-amount">${e.amount.toFixed(2)}</div>
+                          <span className="expense-chevron">{isExpanded ? '▾' : '▸'}</span>
                         </div>
                       </div>
-                      <div className="expense-actions">
-                        <div className="expense-amount">${e.amount.toFixed(2)}</div>
-                        <button className="action-btn" onClick={() => { setEditingExpenseId(e.id); setShowAddExpense(true); }} title="Edit">✏️</button>
-                        <button className="action-btn" onClick={() => deleteExpense(e.id)} title="Delete">🗑</button>
-                      </div>
+                      {isExpanded && (
+                        <div className="expense-expanded">
+                          {e.category && (
+                            <div className="expense-detail-row">
+                              <span className="expense-detail-label">Category</span>
+                              <span style={{
+                                display: 'inline-block',
+                                fontSize: '0.68rem',
+                                fontWeight: 600,
+                                color: CATEGORY_MAP[e.category]?.color || 'var(--text-muted)',
+                                background: (CATEGORY_MAP[e.category]?.color || 'var(--text-muted)') + '18',
+                                padding: '1px 8px',
+                                borderRadius: 'var(--radius-full)',
+                              }}>
+                                {CATEGORY_MAP[e.category]?.label || e.category}
+                              </span>
+                            </div>
+                          )}
+                          {e.splits && e.splits.length > 0 && (
+                            <div className="expense-detail-section">
+                              <div className="expense-detail-label">Split breakdown</div>
+                              {e.splits.map((s, si) => {
+                                const member = members?.find(m => m.id === (s.member_id || s.memberId));
+                                const memberColor = member?.color || '#999';
+                                const memberName = s.member_name || s.memberName || member?.name || '?';
+                                return (
+                                  <div key={si} className="expense-detail-row">
+                                    <span className="expense-detail-name">
+                                      <span className="member-dot" style={{ background: memberColor }} />
+                                      {memberName}
+                                    </span>
+                                    <span className="expense-detail-share">${(s.share ?? 0).toFixed(2)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {payersData && Array.isArray(payersData) && payersData.length > 1 && (
+                            <div className="expense-detail-section">
+                              <div className="expense-detail-label">Payer breakdown</div>
+                              {payersData.map((p, pi) => {
+                                const member = members?.find(m => m.id === (p.member_id || p.memberId || p.id));
+                                const memberColor = member?.color || '#999';
+                                const memberName = p.name || member?.name || '?';
+                                return (
+                                  <div key={pi} className="expense-detail-row">
+                                    <span className="expense-detail-name">
+                                      <span className="member-dot" style={{ background: memberColor }} />
+                                      {memberName}
+                                    </span>
+                                    <span className="expense-detail-share">${(p.amount ?? 0).toFixed(2)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {getExpenseSplitType(e) === 'nights' && e.nights_data && (
+                            <div className="expense-detail-section">
+                              <div className="expense-detail-label">Nights detail</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                                {(() => {
+                                  try {
+                                    const nd = typeof e.nights_data === 'string' ? JSON.parse(e.nights_data) : e.nights_data;
+                                    if (Array.isArray(nd)) {
+                                      return nd.map((n, ni) => (
+                                        <div key={ni} className="expense-detail-row">
+                                          <span className="expense-detail-name">{n.date || n.night}</span>
+                                          <span className="expense-detail-share">{n.count || 1} {(n.count || 1) > 1 ? 'nights' : 'night'}</span>
+                                        </div>
+                                      ));
+                                    }
+                                    return <div>{JSON.stringify(nd)}</div>;
+                                  } catch (_) { return null; }
+                                })()}
+                              </div>
+                            </div>
+                          )}
+                          {e.notes && (
+                            <div className="expense-detail-section">
+                              <div className="expense-detail-label">Notes</div>
+                              <div className="expense-detail-notes">{e.notes}</div>
+                            </div>
+                          )}
+                          {e.attachment_count > 0 && (
+                            <div className="expense-detail-row">
+                              <span className="expense-detail-label">Attachments</span>
+                              <span className="expense-detail-share">📎 {e.attachment_count}</span>
+                            </div>
+                          )}
+                          <div className="expense-actions-expanded">
+                            <button className="action-btn" onClick={(ev) => { ev.stopPropagation(); setEditingExpenseId(e.id); setShowAddExpense(true); }} title="Edit">✏️ Edit</button>
+                            <button className="action-btn" onClick={(ev) => { ev.stopPropagation(); deleteExpense(e.id); }} title="Delete">🗑 Delete</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               <div style={{ padding: '10px 16px' }}>
                 <button className="btn btn-primary" onClick={() => { setEditingExpenseId(null); setShowAddExpense(true); }}>+ Add expense</button>
               </div>
             </>
+          </div>
           )}
 
           {tab === 'debts' && (
+            <div className="tab-panel" key="debts-panel">
             <>
               {allSettled && pendingSettlements.length === 0 ? (
                 <div className="all-settled">
@@ -368,12 +529,47 @@ function GroupPage({
                   {(transactions || []).length > 0 && (
                     <div className="card">
                       <div className="card-title">Who owes whom</div>
-                      {(transactions || []).map((d, i) => (
-                        <div key={i} className="debt-row">
-                          <div className="debt-who"><strong>{d.from.name}</strong> owes <strong>{d.to.name}</strong></div>
-                          <div className="debt-amount balance-negative">${d.amount.toFixed(2)}</div>
-                        </div>
-                      ))}
+                      {(transactions || []).map((d, i) => {
+                        const fromMember = members?.find(m => m.id === d.from.id);
+                        const toMember = members?.find(m => m.id === d.to.id);
+                        return (
+                          <div key={i} className="debt-row">
+                            <div className="debt-info">
+                              <div className="debt-who"><strong>{d.from.name}</strong> owes <strong>{d.to.name}</strong></div>
+                              <div className="debt-amount balance-negative">${d.amount.toFixed(2)}</div>
+                            </div>
+                            <div className="debt-pay">
+                              {toMember?.venmo_link && (
+                                <button
+                                  className="pay-link pay-venmo"
+                                  title="Tap to copy Venmo link"
+                                  onClick={() => {
+                                    const link = toMember.venmo_link.startsWith('http') ? toMember.venmo_link : `https://${toMember.venmo_link}`;
+                                    navigator.clipboard.writeText(link);
+                                    setCopiedPay(`venmo-${i}`);
+                                    setTimeout(() => setCopiedPay(null), 2000);
+                                  }}
+                                >
+                                  {copiedPay === `venmo-${i}` ? '✓ Copied' : 'Venmo'}
+                                </button>
+                              )}
+                              {toMember?.zelle_handle && (
+                                <button
+                                  className="pay-link pay-zelle"
+                                  title="Tap to copy Zelle info"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(toMember.zelle_handle);
+                                    setCopiedPay(`zelle-${i}`);
+                                    setTimeout(() => setCopiedPay(null), 2000);
+                                  }}
+                                >
+                                  {copiedPay === `zelle-${i}` ? '✓ Copied' : `Zelle: ${toMember.zelle_handle}`}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {pendingSettlements.length > 0 && (
@@ -425,9 +621,11 @@ function GroupPage({
                 </div>
               )}
             </>
+          </div>
           )}
 
           {tab === 'history' && features.auditLog && (
+            <div className="tab-panel" key="history-panel">
             <div className="card" style={{ padding: 0 }}>
               {(!auditEntries || auditEntries.length === 0) ? (
                 <div className="empty-state"><p>No activity yet</p></div>
@@ -458,9 +656,18 @@ function GroupPage({
                 })
               )}
             </div>
+          </div>
           )}
         </div>
 
+      {showProfileEdit && (
+        <ProfileEdit
+          member={members?.find(m => m.id === actor.id) || actor}
+          adapter={adapter}
+          onClose={() => setShowProfileEdit(false)}
+          onSaved={() => { setShowProfileEdit(false); if (onRefresh) onRefresh(); }}
+        />
+      )}
       {showAddExpense && (
         <AddExpense
           key={editingExpenseId || 'new'}
