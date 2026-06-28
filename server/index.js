@@ -840,7 +840,12 @@ async function start() {
   });
 }
 
-start().catch(err => {
-  console.error('Failed to start:', err);
-  process.exit(1);
-});
+// Export for sub-app mounting; auto-start only when run directly
+module.exports = { app, start };
+
+if (require.main === module) {
+  start().catch(err => {
+    console.error('Failed to start:', err);
+    process.exit(1);
+  });
+}
