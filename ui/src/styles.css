@@ -1323,6 +1323,186 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   margin-top: 4px;
 }
 
+/* ── 004 Warm Ledger redesign ── */
+
+/* Monospace tabular numerals for money */
+.hero-amt, .debt-amount, .expense-amount, .pcard-bal, .expense-detail-share {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Header breathing room (user note: text was too close to edges) */
+.group-header { padding: 24px 22px; }
+.group-header-row { gap: 16px; }
+@media (min-width: 768px) { .group-header { padding: 28px 34px; } }
+@media (min-width: 1200px) { .group-header { padding: 32px 40px; } }
+
+/* ── Hero balance card ── */
+.group-body { display: block; }
+.group-side { display: flex; flex-direction: column; gap: 14px; }
+
+.hero-card {
+  margin: 16px 16px 0;
+  padding: 18px 20px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+.hero-card::after {
+  content: "";
+  position: absolute;
+  inset: -30% -10% auto auto;
+  width: 180px; height: 180px;
+  background: radial-gradient(circle, rgba(0, 117, 222, 0.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.hero-amt {
+  font-size: 2.1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 4px 0 2px;
+  line-height: 1.1;
+}
+.hero-amt.hero-pos { color: var(--green); }
+.hero-amt.hero-neg { color: var(--red); }
+.hero-amt.hero-zero { color: var(--text-dim); }
+.hero-sub { font-size: 0.78rem; color: var(--text-dim); }
+.hero-progress { margin-top: 14px; }
+.hero-progress-labels {
+  display: flex; justify-content: space-between;
+  font-size: 0.68rem; color: var(--text-muted); margin-bottom: 5px;
+}
+.hero-bar { height: 6px; border-radius: var(--radius-full); background: var(--surface3, #f0f0f2); background: #f0f0f2; overflow: hidden; }
+.hero-bar-fill { height: 100%; border-radius: var(--radius-full); background: var(--green); transition: width 0.3s ease; }
+.hero-cta { margin-top: 14px; display: flex; gap: 8px; }
+.hero-btn-settle {
+  flex: 1; border: none; border-radius: 10px; padding: 11px;
+  background: var(--green); color: #fff;
+  font-size: 0.88rem; font-weight: 700; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(26, 174, 57, 0.25);
+  transition: all var(--transition);
+}
+.hero-btn-settle:hover { opacity: 0.92; transform: translateY(-1px); }
+.hero-btn-settle:active { transform: scale(0.98); }
+.hero-btn-add {
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  border-radius: 10px; padding: 11px 16px;
+  font-size: 0.88rem; font-weight: 600; cursor: pointer;
+  transition: all var(--transition);
+}
+.hero-btn-add:hover { background: var(--surface3, #f0f0f2); background: #f0f0f2; }
+
+/* ── People grid ── */
+.people-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 16px 20px;
+}
+.pcard {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 11px;
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+  text-align: left;
+}
+.pcard-mine { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.pcard-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 0.66rem; font-weight: 700;
+  flex-shrink: 0; letter-spacing: -0.02em;
+}
+.pcard-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pcard-name {
+  font-size: 0.78rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pcard-bal { font-size: 0.72rem; font-weight: 600; }
+.pcard-remove { color: var(--red); font-weight: 700; padding: 2px 5px; flex-shrink: 0; }
+.pcard-add {
+  border: 1px dashed var(--border-strong);
+  background: transparent; color: var(--text-dim);
+  justify-content: center; cursor: pointer;
+  font-size: 0.78rem; font-weight: 600;
+  box-shadow: none;
+}
+.pcard-add:hover { color: var(--primary); border-color: var(--primary); }
+.pcard-add-form { border-style: dashed; border-color: var(--primary); }
+
+/* ── Tabs: bottom bar on mobile, top segmented on desktop ── */
+.page { padding-bottom: 0; }
+.tabs {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 50;
+  margin: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.04);
+}
+.group-content { padding-bottom: 72px; }
+.tab { padding: 12px 10px; min-height: 52px; }
+.tab .tab-badge {
+  margin-left: 5px;
+  background: var(--amber-dim); color: var(--amber);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+@media (min-width: 768px) {
+  .tabs {
+    position: static;
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    backdrop-filter: none;
+    padding-bottom: 0;
+    box-shadow: none;
+  }
+  .group-content { padding-bottom: 0; }
+  .tab { min-height: 44px; }
+}
+
+/* ── Desktop two-pane layout ── */
+@media (min-width: 1024px) {
+  .group-body {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+    max-width: 1120px;
+    margin: 20px auto 0;
+    padding: 0 24px;
+  }
+  .group-side { position: sticky; top: 20px; }
+  .hero-card { margin: 0; padding: 20px 22px; }
+  .people-grid { grid-template-columns: 1fr; margin: 0; }
+  .pcard { padding: 10px 14px; }
+  .group-content { max-width: none; margin: 0; }
+}
+
 /* ── Phase C: Design Polish ── */
 
 /* ── Card Redesign: elevated, softer ── */
@@ -1545,11 +1725,13 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     padding: 14px;
   }
   .group-header {
-    padding: 16px 14px;
+    padding: 22px 20px;
   }
   .members-row {
     padding: 12px 14px;
   }
+  .hero-card { margin: 14px 14px 0; }
+  .people-grid { margin: 0 14px 16px; }
 
   /* Full-width buttons */
   .btn {

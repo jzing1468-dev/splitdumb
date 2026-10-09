@@ -4,3 +4,4 @@ export { default as AddSettlement } from './AddSettlement.jsx';
 export { default as IdentityPicker } from './IdentityPicker.jsx';
 export { default as ProfileEdit } from './ProfileEdit.jsx';
 export { default as NumberInput } from './NumberInput.jsx';
+export { default as ConfirmDialog } from './ConfirmDialog.jsx';

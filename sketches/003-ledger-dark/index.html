@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SplitDumb — Ledger Dark</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0c0e12; --surface: #14171d; --surface2: #1a1e26; --line: #232833;
+    --text: #e8eaf0; --text-dim: #9aa1b2; --text-muted: #5d6579;
+    --emerald: #34d399; --emerald-dim: rgba(52,211,153,.12);
+    --coral: #f87171; --coral-dim: rgba(248,113,113,.12);
+    --gold: #fbbf24; --gold-dim: rgba(251,191,36,.12);
+    --accent: #34d399;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", monospace;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .shell { max-width: 520px; margin: 0 auto; min-height: 100vh; padding-bottom: 96px; }
+  header { padding: 24px 20px 0; }
+  .back { font-size: .8rem; color: var(--text-muted); text-decoration: none; }
+  .group-line { display: flex; align-items: baseline; justify-content: space-between; margin-top: 10px; }
+  h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
+  .gcode { font-family: var(--mono); font-size: .72rem; color: var(--text-muted); }
+
+  .hero { margin: 20px 20px 24px; padding: 20px 22px; background: linear-gradient(135deg, #14171d 0%, #182430 100%);
+    border: 1px solid var(--line); border-radius: 16px; position: relative; overflow: hidden; }
+  .hero::after { content: ""; position: absolute; inset: -40% -20% auto auto; width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(52,211,153,.10) 0%, transparent 70%); }
+  .hero-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-muted); font-weight: 600; }
+  .hero-amt { font-family: var(--mono); font-size: 2.4rem; font-weight: 600; color: var(--emerald); letter-spacing: -.02em; margin: 4px 0 2px; }
+  .hero-sub { font-size: .78rem; color: var(--text-dim); }
+  .progress { margin-top: 16px; }
+  .progress-labels { display: flex; justify-content: space-between; font-size: .68rem; color: var(--text-muted); margin-bottom: 5px; }
+  .bar { height: 6px; border-radius: 9999px; background: var(--surface2); overflow: hidden; }
+  .bar-fill { height: 100%; width: 34%; border-radius: 9999px; background: var(--emerald); }
+  .settle-btn { margin-top: 16px; width: 100%; border: none; border-radius: 10px; padding: 11px;
+    background: var(--emerald); color: #052014; font-size: .9rem; font-weight: 700; cursor: pointer; }
+
+  .section { padding: 0 20px; }
+  .sec-head { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 8px; }
+  .sec-title { font-size: .74rem; text-transform: uppercase; letter-spacing: .09em; color: var(--text-muted); font-weight: 700; }
+  .sec-link { font-size: .74rem; color: var(--emerald); font-weight: 600; text-decoration: none; }
+
+  .people { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 24px; }
+  .pcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; gap: 9px; }
+  .pcard.mine { border-color: var(--emerald); box-shadow: 0 0 0 1px var(--emerald); }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: .68rem; font-weight: 700; color: #fff; flex-shrink: 0; }
+  .pname { font-size: .8rem; font-weight: 600; }
+  .pbal { font-size: .72rem; }
+
+  .ledger { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-bottom: 24px; }
+  .lrow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .lrow:last-child { border-bottom: none; }
+  .lrow:hover { background: var(--surface2); }
+  .lrow .avatar { width: 34px; height: 34px; font-size: .75rem; }
+  .lmain { flex: 1; min-width: 0; }
+  .lname { font-size: .88rem; font-weight: 600; }
+  .lmeta { font-size: .7rem; color: var(--text-muted); }
+  .lamt { font-size: .9rem; font-weight: 600; }
+  .ldetail { display: none; padding: 4px 16px 14px 62px; font-size: .74rem; color: var(--text-dim); border-bottom: 1px solid var(--line); }
+  .lrow.open + .ldetail { display: block; background: var(--surface2); }
+  .dl { display: flex; justify-content: space-between; padding: 2px 0; }
+
+  .tx { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .txrow { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); gap: 10px; }
+  .txrow:last-child { border-bottom: none; }
+  .txflow { flex: 1; font-size: .84rem; color: var(--text-dim); }
+  .txflow b { color: var(--text); font-weight: 600; }
+  .txamt { font-family: var(--mono); font-size: .86rem; font-weight: 600; color: var(--coral); }
+  .pending { font-size: .62rem; font-weight: 700; color: var(--gold); background: var(--gold-dim); border-radius: 9999px; padding: 2px 8px; }
+  .paybtn { font-size: .7rem; font-weight: 700; color: var(--emerald); background: var(--emerald-dim);
+    border: none; border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+
+  .tabbar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 520px; margin: 0 auto; display: flex;
+    background: rgba(12,14,18,.9); backdrop-filter: blur(14px); border-top: 1px solid var(--line); z-index: 10; }
+  .tabbar button { flex: 1; background: none; border: none; padding: 10px 6px 12px; color: var(--text-muted);
+    font-size: .64rem; font-weight: 600; cursor: pointer; }
+  .tabbar button.active { color: var(--emerald); }
+  .tabbar .ic { display: block; font-size: 1.1rem; margin-bottom: 2px; }
+  .addbtn { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); border: none; cursor: pointer;
+    background: var(--emerald); color: #052014; font-weight: 700; font-size: .84rem; border-radius: 9999px; padding: 11px 22px;
+    box-shadow: 0 8px 24px rgba(52,211,153,.25); z-index: 10; }
+
+  @media (min-width: 1024px) {
+    .shell { max-width: 1060px; padding: 0 32px 60px; }
+    .cols { display: grid; grid-template-columns: 380px 1fr; gap: 28px; align-items: start; margin-top: 8px; }
+    .left { position: sticky; top: 24px; }
+    .tabbar, .addbtn { display: none; }
+    .hero { margin: 0 0 20px; }
+    .people { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <a class="back" href="#">← All groups</a>
+    <div class="group-line">
+      <h1>Camping august</h1>
+      <span class="gcode">ZNVAJR</span>
+    </div>
+  </header>
+
+  <div class="cols">
+    <div class="left">
+      <div class="hero">
+        <div class="hero-label">You are owed</div>
+        <div class="hero-amt num">+$71.98</div>
+        <div class="hero-sub">of $415.00 total · Jz</div>
+        <div class="progress">
+          <div class="progress-labels"><span>34% settled</span><span>$170.00 outstanding</span></div>
+          <div class="bar"><div class="bar-fill"></div></div>
+        </div>
+        <button class="settle-btn">Settle up →</button>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-title">Everyone</span><a class="sec-link" href="#">Manage</a></div>
+        <div class="people">
+          <div class="pcard mine"><span class="avatar" style="background:#3b82f6">JZ</span><div><div class="pname">Jz</div><div class="pbal num" style="color:var(--emerald)">+71.98</div></div></div>
+          <div class="pcard"><span class="avatar" style="background:#ef4444">EL</span><div><div class="pname">Elliot</div><div class="pbal num" style="color:var(--emerald)">+75.36</div></div></div>
+          <div class="pcard"><span class="avatar" style="background:#22c55e">JA</span><div><div class="pname">Jack</div><div class="pbal num" style="color:var(--coral)">−56.66</div></div></div>
+          <div class="pcard"><span class="avatar" style="background:#f97316">YA</span><div><div class="pname">Yan</div><div class="pbal num" style="color:var(--emerald)">+19.35</div></div></div>
+          <div class="pcard"><span class="avatar" style="background:#a855f7">XI</span><div><div class="pname">Xiaoyue</div><div class="pbal num" style="color:var(--emerald)">+3.33</div></div></div>
+          <div class="pcard"><span class="avatar" style="background:#0ea5e9">YU</span><div><div class="pname">Yuanze</div><div class="pbal num" style="color:var(--coral)">−56.67</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section">
+        <div class="sec-head"><span class="sec-title">Activity</span><a class="sec-link" href="#">+ Add expense</a></div>
+        <div class="ledger" id="tab-exp">
+          <div class="lrow open" onclick="this.classList.toggle('open')">
+            <span class="avatar" style="background:#3b82f6">JZ</span>
+            <div class="lmain"><div class="lname">Campground</div><div class="lmeta">Jz · 2 nights · Aug 20</div></div>
+            <div class="lamt num">$147.00</div>
+          </div>
+          <div class="ldetail">
+            <div class="dl"><span>Jz · Night 1, Night 2</span><span class="num">$36.74</span></div>
+            <div class="dl"><span>Elliot · Night 2</span><span class="num">$18.37</span></div>
+            <div class="dl"><span>Jack · Night 2</span><span class="num">$18.37</span></div>
+            <div class="dl"><span>Yan, Xiaoyue, Yuanze, Venus · Night 2</span><span class="num">$18.38 ea</span></div>
+          </div>
+          <div class="lrow" onclick="this.classList.toggle('open')">
+            <span class="avatar" style="background:#ef4444">EL</span>
+            <div class="lmain"><div class="lname">costco</div><div class="lmeta">Elliot · equal · Aug 24</div></div>
+            <div class="lamt num">$132.00</div>
+          </div>
+          <div class="lrow" onclick="this.classList.toggle('open')">
+            <span class="avatar" style="background:#f97316">YA</span>
+            <div class="lmain"><div class="lname">Hamrt</div><div class="lmeta">Yan · equal · Aug 20</div></div>
+            <div class="lamt num">$76.00</div>
+          </div>
+          <div class="lrow" onclick="this.classList.toggle('open')">
+            <span class="avatar" style="background:#a855f7">XI</span>
+            <div class="lmain"><div class="lname">牛肉</div><div class="lmeta">Xiaoyue · equal · Aug 20</div></div>
+            <div class="lamt num">$60.00</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-title">Settle up</span><span class="pending">1 pending</span></div>
+        <div class="tx" id="tab-settle">
+          <div class="txrow"><span class="txflow"><b>Yuanze</b> pays <b>Elliot</b></span><span class="txamt">−56.67</span><button class="paybtn">Venmo ↗</button></div>
+          <div class="txrow"><span class="txflow"><b>Venus</b> pays <b>Elliot</b> <span class="pending">$18.67 pending</span></span><span class="txamt">−56.67</span><button class="paybtn">Venmo ↗</button></div>
+          <div class="txrow"><span class="txflow"><b>Venus</b> pays <b>Jz</b></span><span class="txamt">−38.00</span><button class="paybtn">Venmo ↗</button></div>
+          <div class="txrow"><span class="txflow"><b>Jack</b> pays <b>Jz</b></span><span class="txamt">−33.98</span><button class="paybtn">Venmo ↗</button></div>
+          <div class="txrow"><span class="txflow"><b>Jack</b> pays <b>Yan</b></span><span class="txamt">−19.35</span><button class="paybtn">Venmo ↗</button></div>
+          <div class="txrow"><span class="txflow"><b>Jack</b> pays <b>Xiaoyue</b></span><span class="txamt">−3.33</span><button class="paybtn">Venmo ↗</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="addbtn" onclick="alert('Add expense')">+ Add expense</button>
+  <nav class="tabbar">
+    <button class="active"><span class="ic">◈</span>Activity</button>
+    <button><span class="ic">⇄</span>Settle up</button>
+    <button><span class="ic">☰</span>Group</button>
+  </nav>
+</div>
+<script>
+  // expandable rows + tab switching already inline; nothing else needed
+</script>
+</body>
+</html>

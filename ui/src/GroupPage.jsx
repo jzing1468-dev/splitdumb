@@ -4,6 +4,7 @@ import AddExpense from './AddExpense';
 import AddSettlement from './AddSettlement';
 import IdentityPicker from './IdentityPicker';
 import ProfileEdit from './ProfileEdit';
+import ConfirmDialog from './ConfirmDialog';
 
 /**
  * Shared GroupPage — pure React, receives data and callbacks as props.
@@ -61,6 +62,11 @@ function GroupPage({
   const [expandedExpenseId, setExpandedExpenseId] = useState(null);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [copiedPay, setCopiedPay] = useState(null);
+  const [showConfirmed, setShowConfirmed] = useState(false);
+  // Styled replacement for native confirm(): { title, message, confirmLabel, action }
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const askConfirm = (title, message, action, confirmLabel = 'Confirm') =>
+    setConfirmDialog({ title, message, action, confirmLabel });
 
   // Hooks must be called unconditionally (before any early return)
   const filteredExpenses = useMemo(() => {
@@ -181,19 +187,21 @@ function GroupPage({
 
   const removeMember = async (id, name) => {
     if (!isAdmin) return;
-    if (!confirm(`Remove ${name}? This will delete their expenses and splits.`)) return;
-    try {
-      await adapter.removeMember(id, name);
-      if (onRefresh) onRefresh();
-    } catch (err) { setError(err.message); }
+    askConfirm('Remove member', `Remove ${name}? This will delete their expenses and splits.`, async () => {
+      try {
+        await adapter.removeMember(id, name);
+        if (onRefresh) onRefresh();
+      } catch (err) { setError(err.message); }
+    }, '🗑 Remove');
   };
 
   const deleteExpense = async (id) => {
-    if (!confirm('Delete this expense?')) return;
-    try {
-      await adapter.deleteExpense(id);
-      if (onRefresh) onRefresh();
-    } catch (err) { setError(err.message); }
+    askConfirm('Delete expense', 'Delete this expense? This cannot be undone.', async () => {
+      try {
+        await adapter.deleteExpense(id);
+        if (onRefresh) onRefresh();
+      } catch (err) { setError(err.message); }
+    }, '🗑 Delete');
   };
 
   const confirmSettlement = async (id) => {
@@ -210,9 +218,40 @@ function GroupPage({
     } catch (err) { setError(err.message); }
   };
 
+  const cancelSettlement = async (id) => {
+    askConfirm('Cancel settlement', 'Cancel this settlement record? It will be removed.', async () => {
+      try {
+        await adapter.cancelSettlement(id);
+        if (onRefresh) onRefresh();
+      } catch (err) { setError(err.message); }
+    }, '🗑 Cancel');
+  };
+
+  // Pending (unconfirmed) payments keyed by "fromId|toId" — shown inline on debt rows
+  const pendingByPair = {};
+  (settlements || []).filter(s => s.status === 'pending').forEach(s => {
+    const key = `${s.from_id || s.fromId}|${s.to_id || s.toId}`;
+    pendingByPair[key] = (pendingByPair[key] || 0) + s.amount;
+  });
+
   const totalSpent = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0;
   const allSettled = (transactions || []).length === 0;
   const pendingSettlements = settlements?.filter(s => s.status === 'pending') || [];
+
+  // ── Hero metrics (004 redesign) ──
+  const actorBal = balances?.[actor.id]?.balance || 0;
+  const outstandingTotal = Object.values(balances || {})
+    .reduce((s, b) => s + (b.balance < 0 ? -b.balance : 0), 0);
+  const confirmedPaid = (settlements || [])
+    .filter(s => s.status === 'confirmed')
+    .reduce((s, x) => s + x.amount, 0);
+  // Share of all money that ever needed to move that has moved
+  const progressPct = (confirmedPaid + outstandingTotal) > 0
+    ? confirmedPaid / (confirmedPaid + outstandingTotal)
+    : 1;
+  const initialsOf = (name) =>
+    (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+  const fmtSigned = (v) => (v < -0.005 ? '−' : v > 0.005 ? '+' : '') + Math.abs(v).toFixed(2);
 
   const getExpensePayerName = (e) => {
     if (e.payer_name) return e.payer_name;
@@ -240,11 +279,12 @@ function GroupPage({
         </div>
         <div className="group-header-actions">
           {features.admin && isAdmin && (
-            <button className="btn btn-sm btn-danger-outline" onClick={async () => {
-              if (!confirm('Delete this entire group? This cannot be undone.')) return;
-              try { await adapter.deleteGroup(); if (onLeave) onLeave(); }
-              catch (err) { setError(err.message); }
-            }} title="Delete group">🗑</button>
+            <button className="btn btn-sm btn-danger-outline" onClick={() => {
+              askConfirm('Delete group', `Delete the entire group "${group?.name}"? All expenses, splits and settlements will be removed. This cannot be undone.`, async () => {
+                try { await adapter.deleteGroup(); if (onLeave) onLeave(); }
+                catch (err) { setError(err.message); }
+              }, '🗑 Delete group');
+            }} title="Delete group">🗑 Delete</button>
           )}
           {onLeave && (
             <button className="btn btn-sm btn-ghost" onClick={onLeave}>← Home</button>
@@ -265,45 +305,63 @@ function GroupPage({
     </div>
   );
 
-  const MembersRow = () => (
-    <div className="members-row">
-      {members?.map(m => (
-        <span key={m.id} className="member-chip" style={{ background: m.color + '18', borderColor: m.color + '40' }}>
-          <span className="member-dot" style={{ background: m.color }} />{m.name}
-          {features.admin && isAdmin && adapter.removeMember && <button className="action-btn" onClick={() => removeMember(m.id, m.name)} style={{ padding: '0 4px', marginLeft: 2 }}>✕</button>}
-        </span>
-      ))}
-      {showAddMember ? (
-        <span className="member-chip" style={{ background: 'var(--surface2)', borderColor: 'var(--border)' }}>
-          <input className="form-input" style={{ width: 80, padding: '2px 6px', fontSize: '0.8rem' }} placeholder="Name" value={newMember} onChange={e => setNewMember(e.target.value)} maxLength={30}
-            onKeyDown={e => e.key === 'Enter' && addMember()} autoFocus />
-          <button className="btn btn-primary btn-xs" style={{ padding: '2px 6px' }} onClick={addMember}>✓</button>
-          <button className="btn btn-ghost btn-xs" style={{ padding: '2px 6px' }} onClick={() => { setShowAddMember(false); setNewMember(''); }}>✗</button>
-        </span>
-      ) : (
-        <button className="btn btn-ghost btn-xs member-add-btn" onClick={() => setShowAddMember(true)}>+ Add</button>
-      )}
-    </div>
-  );
-
-  const BalanceBar = () => (
-    <div className="balance-bar">
-      <div className="balance-bar-total">
-        <span style={{ color: 'var(--text-dim)', fontSize: '0.78rem' }}>Total</span>
-        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${totalSpent.toFixed(2)}</span>
+  // ── Hero balance card (004 redesign) ──
+  const HeroCard = () => {
+    const isOwed = actorBal > 0.005;
+    const owes = actorBal < -0.005;
+    return (
+      <div className="hero-card">
+        <div className="hero-label">{isOwed ? 'You are owed' : owes ? 'You owe' : 'All square'}</div>
+        <div className={`hero-amt ${isOwed ? 'hero-pos' : owes ? 'hero-neg' : 'hero-zero'}`}>
+          {fmtSigned(actorBal)}
+        </div>
+        <div className="hero-sub">of ${totalSpent.toFixed(2)} total · {members?.length || 0} members</div>
+        <div className="hero-progress">
+          <div className="hero-progress-labels">
+            <span>{Math.round(progressPct * 100)}% settled</span>
+            <span>${outstandingTotal.toFixed(2)} outstanding</span>
+          </div>
+          <div className="hero-bar"><div className="hero-bar-fill" style={{ width: `${Math.round(progressPct * 100)}%` }} /></div>
+        </div>
+        <div className="hero-cta">
+          <button className="hero-btn-settle" onClick={() => setTab('debts')}>Settle up →</button>
+          <button className="hero-btn-add" onClick={() => { setEditingExpenseId(null); setShowAddExpense(true); }}>+ Expense</button>
+        </div>
       </div>
+    );
+  };
+
+  // ── People grid (004 redesign — replaces member chips + balance chips) ──
+  const PeopleGrid = () => (
+    <div className="people-grid">
       {members?.map(m => {
         const bal = balances?.[m.id]?.balance || 0;
+        const isActor = m.id === actor?.id;
         return (
-          <span key={m.id} className="balance-chip" style={{ background: m.color + '12' }}>
-            <span className="member-dot" style={{ background: m.color }} />
-            <span className="balance-chip-name">{m.name}</span>
-            <span className={bal > 0.005 ? 'balance-positive' : bal < -0.005 ? 'balance-negative' : 'balance-zero'} style={{ fontWeight: 600, fontSize: '0.82rem' }}>
-              {bal > 0.005 ? '+' : ''}{bal.toFixed(2)}
+          <span key={m.id} className={`pcard ${isActor ? 'pcard-mine' : ''}`}>
+            <span className="pcard-avatar" style={{ background: m.color || '#999' }}>{initialsOf(m.name)}</span>
+            <span className="pcard-main">
+              <span className="pcard-name">{m.name}{isActor ? ' (you)' : ''}</span>
+              <span className={`pcard-bal ${bal > 0.005 ? 'balance-positive' : bal < -0.005 ? 'balance-negative' : 'balance-zero'}`}>
+                {fmtSigned(bal)}
+              </span>
             </span>
+            {features.admin && isAdmin && adapter.removeMember && (
+              <button className="action-btn pcard-remove" onClick={() => removeMember(m.id, m.name)} title={`Remove ${m.name}`}>✕</button>
+            )}
           </span>
         );
       })}
+      {showAddMember ? (
+        <span className="pcard pcard-add-form">
+          <input className="form-input" style={{ padding: '4px 8px', fontSize: '0.8rem' }} placeholder="Name" value={newMember} onChange={e => setNewMember(e.target.value)} maxLength={30}
+            onKeyDown={e => e.key === 'Enter' && addMember()} autoFocus />
+          <button className="btn btn-primary btn-xs" onClick={addMember}>✓</button>
+          <button className="btn btn-ghost btn-xs" onClick={() => { setShowAddMember(false); setNewMember(''); }}>✗</button>
+        </span>
+      ) : (
+        <button className="pcard pcard-add" onClick={() => setShowAddMember(true)}>+ Add member</button>
+      )}
     </div>
   );
 
@@ -314,13 +372,21 @@ function GroupPage({
   return (
     <div className="page">
       <Header />
-      <MembersRow />
-      <BalanceBar />
+
+      <div className="group-body">
+        <aside className="group-side">
+          <HeroCard />
+          <PeopleGrid />
+        </aside>
 
       <div className="group-content">
           <div className="tabs">
             <button className={`tab ${tab === 'expenses' ? 'active' : ''}`} onClick={() => setTab('expenses')}>Expenses</button>
-            <button className={`tab ${tab === 'debts' ? 'active' : ''}`} onClick={() => setTab('debts')}>Settle Up</button>
+            <button className={`tab ${tab === 'debts' ? 'active' : ''}`} onClick={() => setTab('debts')}>
+              Settle Up{pendingSettlements.length > 0 && (
+                <span className="tab-badge">{pendingSettlements.length}</span>
+              )}
+            </button>
             {features.auditLog && (
               <button className={`tab ${tab === 'history' ? 'active' : ''}`} onClick={() => setTab('history')}>History</button>
             )}
@@ -445,6 +511,30 @@ function GroupPage({
                               })}
                             </div>
                           )}
+                          {getExpenseSplitType(e) === 'shares' && e.shares_data && (() => {
+                            try {
+                              const sd = typeof e.shares_data === 'string' ? JSON.parse(e.shares_data) : e.shares_data;
+                              const entries = Object.entries(sd || {}).filter(([k]) => !k.startsWith('_'));
+                              if (entries.length === 0) return null;
+                              return (
+                                <div className="expense-detail-section">
+                                  <div className="expense-detail-label">Share weights</div>
+                                  {entries.map(([mid, w]) => {
+                                    const member = members?.find(m => m.id === mid);
+                                    return (
+                                      <div key={mid} className="expense-detail-row">
+                                        <span className="expense-detail-name">
+                                          <span className="member-dot" style={{ background: member?.color || '#999' }} />
+                                          {member?.name || 'Unknown'}
+                                        </span>
+                                        <span className="expense-detail-share">×{String(w)}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            } catch (_) { return null; }
+                          })()}
                           {payersData && Array.isArray(payersData) && payersData.length > 1 && (
                             <div className="expense-detail-section">
                               <div className="expense-detail-label">Payer breakdown</div>
@@ -472,6 +562,7 @@ function GroupPage({
                                   try {
                                     const nd = typeof e.nights_data === 'string' ? JSON.parse(e.nights_data) : e.nights_data;
                                     if (Array.isArray(nd)) {
+                                      // Legacy {date, count} rows
                                       return nd.map((n, ni) => (
                                         <div key={ni} className="expense-detail-row">
                                           <span className="expense-detail-name">{n.date || n.night}</span>
@@ -479,7 +570,32 @@ function GroupPage({
                                         </div>
                                       ));
                                     }
-                                    return <div>{JSON.stringify(nd)}</div>;
+                                    // Stored shape: { [memberId]: [night labels], _num_nights, _mode, _calc }
+                                    const numNights = nd._num_nights || 0;
+                                    const calc = nd._calc || 'proportional';
+                                    return (
+                                      <div>
+                                        <div style={{ marginBottom: 6 }}>
+                                          {numNights > 0 && `${numNights} ${numNights > 1 ? 'nights' : 'night'} · `}
+                                          {calc === 'daily' ? 'split per day' : 'split by person-nights'}
+                                        </div>
+                                        {Object.entries(nd).filter(([k]) => !k.startsWith('_')).map(([mid, labels]) => {
+                                          const member = members?.find(m => m.id === mid);
+                                          const list = Array.isArray(labels) ? labels : [];
+                                          return (
+                                            <div key={mid} className="expense-detail-row">
+                                              <span className="expense-detail-name">
+                                                <span className="member-dot" style={{ background: member?.color || '#999' }} />
+                                                {member?.name || 'Unknown'}
+                                              </span>
+                                              <span className="expense-detail-share">
+                                                {list.length > 0 ? `${list.length} ${list.length > 1 ? 'nights' : 'night'} (${list.join(', ')})` : '—'}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    );
                                   } catch (_) { return null; }
                                 })()}
                               </div>
@@ -532,27 +648,36 @@ function GroupPage({
                       {(transactions || []).map((d, i) => {
                         const fromMember = members?.find(m => m.id === d.from.id);
                         const toMember = members?.find(m => m.id === d.to.id);
+                        const pendingForPair = pendingByPair[`${d.from.id}|${d.to.id}`] || 0;
                         return (
                           <div key={i} className="debt-row">
                             <div className="debt-info">
-                              <div className="debt-who"><strong>{d.from.name}</strong> owes <strong>{d.to.name}</strong></div>
-                              <div className="debt-amount balance-negative">${d.amount.toFixed(2)}</div>
+                              <div className="debt-who">
+                                <strong>{d.from.name}</strong> owes <strong>{d.to.name}</strong>
+                                {pendingForPair > 0 && (
+                                  <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--amber)', fontWeight: 600 }}>
+                                    ${pendingForPair.toFixed(2)} pending
+                                  </span>
+                                )}
+                              </div>
+                              <div className="debt-amount balance-negative">−{d.amount.toFixed(2)}</div>
                             </div>
                             <div className="debt-pay">
-                              {toMember?.venmo_link && (
-                                <button
-                                  className="pay-link pay-venmo"
-                                  title="Tap to copy Venmo link"
-                                  onClick={() => {
-                                    const link = toMember.venmo_link.startsWith('http') ? toMember.venmo_link : `https://${toMember.venmo_link}`;
-                                    navigator.clipboard.writeText(link);
-                                    setCopiedPay(`venmo-${i}`);
-                                    setTimeout(() => setCopiedPay(null), 2000);
-                                  }}
-                                >
-                                  {copiedPay === `venmo-${i}` ? '✓ Copied' : 'Venmo'}
-                                </button>
-                              )}
+                              {toMember?.venmo_link && (() => {
+                                const v = toMember.venmo_link;
+                                const url = v.startsWith('http') ? v : `https://${v}`;
+                                return (
+                                  <a
+                                    className="pay-link pay-venmo"
+                                    title="Open in Venmo"
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    Venmo
+                                  </a>
+                                );
+                              })()}
                               {toMember?.zelle_handle && (
                                 <button
                                   className="pay-link pay-zelle"
@@ -584,35 +709,46 @@ function GroupPage({
                               <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{fromName} paid {toName}</div>
                               <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)' }}>${s.amount.toFixed(2)}</div>
                             </div>
-                            {adapter.confirmSettlement && (
-                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                                <button className="btn btn-primary btn-xs" onClick={() => confirmSettlement(s.id)} title="Confirm">✓</button>
-                                <button className="btn btn-secondary btn-xs" onClick={() => disputeSettlement(s.id)} title="Dispute">✗</button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {settlements?.filter(s => s.status === 'confirmed').length > 0 && (
-                    <div className="card">
-                      <div className="card-title">Confirmed</div>
-                      {settlements.filter(s => s.status === 'confirmed').map(s => {
-                        const fromName = s.from_name || members?.find(m => m.id === (s.from_id || s.fromId))?.name || '?';
-                        const toName = s.to_name || members?.find(m => m.id === (s.to_id || s.toId))?.name || '?';
-                        return (
-                          <div key={s.id} className="settlement-item">
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{fromName} → {toName}</div>
-                              <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)' }}>${s.amount.toFixed(2)}</div>
+                            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                              {adapter.confirmSettlement && (
+                                <>
+                                  <button className="btn btn-primary btn-xs" onClick={() => confirmSettlement(s.id)} title="Confirm">✓</button>
+                                  <button className="btn btn-secondary btn-xs" onClick={() => disputeSettlement(s.id)} title="Dispute">✗</button>
+                                </>
+                              )}
+                              {adapter.cancelSettlement && (
+                                <button className="btn btn-danger-outline btn-xs" onClick={() => cancelSettlement(s.id)} title="Cancel this record">🗑 Cancel</button>
+                              )}
                             </div>
-                            <span className="settlement-status confirmed">✓</span>
                           </div>
                         );
                       })}
                     </div>
                   )}
+                  {(() => {
+                    const confirmedList = settlements?.filter(s => s.status === 'confirmed') || [];
+                    if (confirmedList.length === 0) return null;
+                    return (
+                      <div className="card">
+                        <div className="card-title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowConfirmed(v => !v)}>
+                          <span>Confirmed ({confirmedList.length}) {showConfirmed ? '▾' : '▸'}</span>
+                        </div>
+                        {showConfirmed && confirmedList.map(s => {
+                          const fromName = s.from_name || members?.find(m => m.id === (s.from_id || s.fromId))?.name || '?';
+                          const toName = s.to_name || members?.find(m => m.id === (s.to_id || s.toId))?.name || '?';
+                          return (
+                            <div key={s.id} className="settlement-item">
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{fromName} → {toName}</div>
+                                <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)' }}>${s.amount.toFixed(2)}</div>
+                              </div>
+                              <span className="settlement-status confirmed">✓</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
               {!allSettled && (transactions || []).length > 0 && (
@@ -659,7 +795,21 @@ function GroupPage({
           </div>
           )}
         </div>
+      </div>
 
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          onConfirm={async () => {
+            const action = confirmDialog.action;
+            setConfirmDialog(null);
+            await action();
+          }}
+          onClose={() => setConfirmDialog(null)}
+        />
+      )}
       {showProfileEdit && (
         <ProfileEdit
           member={members?.find(m => m.id === actor.id) || actor}
@@ -675,6 +825,7 @@ function GroupPage({
           expense={editingExpense}
           adapter={adapter}
           features={features}
+          actor={actor}
           onClose={() => { setShowAddExpense(false); setEditingExpenseId(null); }}
           onSaved={() => { setShowAddExpense(false); setEditingExpenseId(null); if (onRefresh) onRefresh(); }}
           AttachmentManager={AttachmentManager}
@@ -686,6 +837,7 @@ function GroupPage({
           members={members}
           debts={transactions || []}
           adapter={adapter}
+          actor={actor}
           onClose={() => setShowAddSettlement(false)}
           onSaved={() => { setShowAddSettlement(false); if (onRefresh) onRefresh(); }}
         />

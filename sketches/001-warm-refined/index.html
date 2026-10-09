@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SplitDumb — Warm Refined</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f5f5f7; --bg-warm: #fdfdf8; --surface: #fff; --surface2: #fafafa;
+    --border: rgba(0,0,0,.06); --border-strong: rgba(0,0,0,.1);
+    --text: rgba(0,0,0,.9); --text-dim: #615d59; --text-muted: #a39e98;
+    --primary: #0075de; --green: #1aae39; --red: #e23b4a; --amber: #ec7e00;
+    --radius: 12px; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 0.5px 1px rgba(0,0,0,.03);
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .app { max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: 88px; }
+
+  header.page { padding: 20px 16px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -.03em; }
+  .code { font-family: ui-monospace, "SF Mono", monospace; font-size: .78rem; color: var(--primary); background: var(--surface2); padding: 2px 8px; border-radius: 6px; letter-spacing: .06em; margin-top: 2px; display: inline-block; }
+  .me { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-weight: 600; font-size: .88rem; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: .7rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  .hero { background: var(--bg-warm); border-bottom: 1px solid var(--border); padding: 14px 16px; }
+  .hero-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 600; }
+  .hero-amount { font-size: 1.8rem; font-weight: 700; letter-spacing: -.03em; margin: 2px 0 8px; font-variant-numeric: tabular-nums; }
+  .hero-amount.pos { color: var(--green); } .hero-amount.neg { color: var(--red); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; padding: 4px 10px; border-radius: 9999px; background: var(--surface); border: 1px solid var(--border); }
+  .chip .amt { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chip.mine { box-shadow: 0 0 0 2px var(--primary); border-color: var(--primary); font-weight: 600; }
+
+  main { padding: 14px 16px; }
+  .segmented { display: flex; background: var(--surface3, #f0f0f0); background: #f0f0f2; border-radius: 10px; padding: 3px; margin-bottom: 14px; }
+  .segmented button { flex: 1; border: none; background: transparent; padding: 8px 10px; font-size: .84rem; font-weight: 600; color: var(--text-dim); border-radius: 8px; cursor: pointer; }
+  .segmented button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .seg-badge { background: var(--amber); color: #fff; font-size: .62rem; border-radius: 9999px; padding: 1px 6px; margin-left: 5px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .card + .card { margin-top: 10px; }
+  .card-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; color: var(--text-muted); padding: 14px 16px 4px; }
+  .expense { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .15s; }
+  .expense:last-child { border-bottom: none; }
+  .expense:hover { background: var(--surface2); }
+  .expense .avatar { width: 34px; height: 34px; font-size: .8rem; }
+  .exp-main { flex: 1; min-width: 0; }
+  .exp-name { font-weight: 600; font-size: .92rem; }
+  .exp-meta { font-size: .76rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exp-amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .exp-detail { display: none; background: var(--surface2); padding: 10px 16px 14px; border-bottom: 1px solid var(--border); font-size: .8rem; }
+  .expense.open + .exp-detail { display: block; }
+  .drow { display: flex; justify-content: space-between; padding: 3px 0; color: var(--text-dim); }
+  .drow b { color: var(--text); font-weight: 600; }
+
+  .debt { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); gap: 10px; }
+  .debt:last-child { border-bottom: none; }
+  .debt-main { flex: 1; }
+  .debt-who { font-size: .9rem; }
+  .debt-who b { font-weight: 600; }
+  .pending-tag { font-size: .68rem; color: var(--amber); font-weight: 700; margin-left: 6px; }
+  .debt-amt { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--red); }
+  .pay { font-size: .72rem; font-weight: 600; padding: 5px 12px; border-radius: 9999px; background: #3d95ce; color: #fff; text-decoration: none; }
+
+  .tabbar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; background: rgba(255,255,255,.92); backdrop-filter: blur(12px); border-top: 1px solid var(--border); display: flex; padding-bottom: env(safe-area-inset-bottom); z-index: 10; }
+  .tabbar button { flex: 1; border: none; background: none; padding: 10px 8px; font-size: .68rem; font-weight: 600; color: var(--text-muted); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .tabbar button.active { color: var(--primary); }
+  .tabbar .icon { font-size: 1.15rem; font-style: normal; }
+  .fab { position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%); background: var(--primary); color: #fff; border: none; border-radius: 9999px; padding: 12px 22px; font-size: .9rem; font-weight: 600; cursor: pointer; box-shadow: 0 6px 18px rgba(0,117,222,.35); z-index: 10; }
+
+  @media (min-width: 1024px) {
+    .app { max-width: 1120px; padding: 0 24px 40px; }
+    header.page, .hero, main { padding-left: 0; padding-right: 0; }
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; margin-top: 20px; }
+    .tabbar, .fab { display: none; }
+    .hero { border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); margin-bottom: 14px; padding: 18px 22px; }
+    .side { position: sticky; top: 20px; display: flex !important; flex-direction: column; gap: 14px; }
+    .layout > div:last-child { min-width: 0; }
+    .segmented { margin-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="page">
+    <div class="row">
+      <div>
+        <h1>Camping august</h1>
+        <span class="code">ZNVAJR</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button style="border:1px solid rgba(226,59,74,.25);background:rgba(226,59,74,.06);color:var(--red);border-radius:8px;padding:5px 12px;font-size:.78rem;font-weight:600;cursor:pointer">🗑 Delete</button>
+        <button style="border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:5px 12px;font-size:.78rem;font-weight:500;color:var(--text-dim);cursor:pointer">← Home</button>
+      </div>
+    </div>
+    <div class="me">
+      <span class="avatar" style="background:#3b82f6">JZ</span>
+      Acting as <span style="color:var(--text)">Jz</span>
+      <span style="color:var(--text-muted);font-weight:400;font-size:.78rem">· Edit · Switch</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="hero-label">You are owed</div>
+    <div class="hero-amount pos">+$71.98</div>
+    <div class="chips">
+      <span class="chip mine"><span class="avatar" style="background:#3b82f6;width:16px;height:16px;font-size:.5rem">J</span>Jz <span class="amt" style="color:var(--green)">+71.98</span></span>
+      <span class="chip"><span class="avatar" style="background:#ef4444;width:16px;height:16px;font-size:.5rem">E</span>Elliot <span class="amt" style="color:var(--green)">+75.34</span></span>
+      <span class="chip"><span class="avatar" style="background:#22c55e;width:16px;height:16px;font-size:.5rem">J</span>Jack <span class="amt" style="color:var(--red)">−56.66</span></span>
+      <span class="chip"><span class="avatar" style="background:#f97316;width:16px;height:16px;font-size:.5rem">Y</span>Yan <span class="amt" style="color:var(--green)">+19.35</span></span>
+      <span class="chip"><span class="avatar" style="background:#a855f7;width:16px;height:16px;font-size:.5rem">X</span>Xiaoyue <span class="amt" style="color:var(--green)">+3.33</span></span>
+      <span class="chip"><span class="avatar" style="background:#0ea5e9;width:16px;height:16px;font-size:.5rem">Y</span>Yuanze <span class="amt" style="color:var(--red)">−56.67</span></span>
+      <span class="chip"><span class="avatar" style="background:#eab308;width:16px;height:16px;font-size:.5rem">V</span>Venus <span class="amt" style="color:var(--red)">−56.67</span></span>
+    </div>
+  </section>
+
+  <div class="layout">
+    <aside class="side" style="display:none">
+      <div class="card">
+        <div class="card-title">Balances</div>
+        <div class="drow" style="padding:4px 16px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#3b82f6;width:20px;height:20px;font-size:.55rem">JZ</span>Jz (you)</span><b style="color:var(--green)">+71.98</b></div>
+        <div class="drow" style="padding:4px 16px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#ef4444;width:20px;height:20px;font-size:.55rem">EL</span>Elliot</span><b style="color:var(--green)">+75.34</b></div>
+        <div class="drow" style="padding:4px 16px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#22c55e;width:20px;height:20px;font-size:.55rem">JA</span>Jack</span><b style="color:var(--red)">−56.66</b></div>
+        <div class="drow" style="padding:4px 16px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#f97316;width:20px;height:20px;font-size:.55rem">YA</span>Yan</span><b style="color:var(--green)">+19.35</b></div>
+        <div class="drow" style="padding:4px 16px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#a855f7;width:20px;height:20px;font-size:.55rem">XI</span>Xiaoyue</span><b style="color:var(--green)">+3.33</b></div>
+        <div class="drow" style="padding:4px 16px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#0ea5e9;width:20px;height:20px;font-size:.55rem">YU</span>Yuanze</span><b style="color:var(--red)">−56.67</b></div>
+        <div class="drow" style="padding:4px 16px 12px"><span style="display:flex;align-items:center;gap:8px"><span class="avatar" style="background:#eab308;width:20px;height:20px;font-size:.55rem">VE</span>Venus</span><b style="color:var(--red)">−56.67</b></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Suggested payments</div>
+        <div class="drow" style="padding:4px 16px"><span>Yuanze → Elliot</span><b>$56.67</b></div>
+        <div class="drow" style="padding:4px 16px"><span>Venus → Jz</span><b>$38.00</b></div>
+        <div class="drow" style="padding:4px 16px 12px"><span>Jack → Jz</span><b>$33.98</b></div>
+        <div class="drow" style="padding:0 16px 12px;color:var(--text-muted);font-size:.72rem">+ 3 more payments</div>
+      </div>
+    </aside>
+    <div>
+      <div class="segmented" id="seg">
+        <button class="active" onclick="setTab('exp', this)">Expenses</button>
+        <button onclick="setTab('settle', this)">Settle Up<span class="seg-badge">1</span></button>
+        <button onclick="setTab('hist', this)">History</button>
+      </div>
+
+      <main>
+        <div id="tab-exp">
+          <div class="card">
+            <div class="expense open" onclick="this.classList.toggle('open')">
+              <span class="avatar" style="background:#3b82f6">JZ</span>
+              <div class="exp-main">
+                <div class="exp-name">Campground</div>
+                <div class="exp-meta">Jz · Per Day · 2026-08-20</div>
+              </div>
+              <div class="exp-amt">$147.00</div>
+            </div>
+            <div class="exp-detail">
+              <div class="drow"><span>Jz</span><b>$36.74</b></div>
+              <div class="drow"><span>Elliot, Jack</span><b>$18.37 ea</b></div>
+              <div class="drow"><span>Yan, Xiaoyue, Yuanze, Venus</span><b>$18.38 ea</b></div>
+              <div class="drow" style="margin-top:6px;color:var(--text-muted)">2 nights · split by person-nights · Jz stayed both</div>
+            </div>
+            <div class="expense" onclick="this.classList.toggle('open')">
+              <span class="avatar" style="background:#ef4444">EL</span>
+              <div class="exp-main">
+                <div class="exp-name">costco</div>
+                <div class="exp-meta">Elliot · Equal · 2026-08-24</div>
+              </div>
+              <div class="exp-amt">$132.00</div>
+            </div>
+            <div class="expense" onclick="this.classList.toggle('open')">
+              <span class="avatar" style="background:#f97316">YA</span>
+              <div class="exp-main">
+                <div class="exp-name">Hamrt</div>
+                <div class="exp-meta">Yan · Equal · 2026-08-20</div>
+              </div>
+              <div class="exp-amt">$76.00</div>
+            </div>
+            <div class="expense" onclick="this.classList.toggle('open')">
+              <span class="avatar" style="background:#a855f7">XI</span>
+              <div class="exp-main">
+                <div class="exp-name">牛肉</div>
+                <div class="exp-meta">Xiaoyue · Equal · 2026-08-20</div>
+              </div>
+              <div class="exp-amt">$60.00</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-settle" style="display:none">
+          <div class="card">
+            <div class="card-title">Who owes whom</div>
+            <div class="debt">
+              <div class="debt-main"><div class="debt-who"><b>Yuanze</b> owes <b>Elliot</b></div></div>
+              <div class="debt-amt">$56.67</div>
+              <a class="pay" href="#">Venmo</a>
+            </div>
+            <div class="debt">
+              <div class="debt-main"><div class="debt-who"><b>Venus</b> owes <b>Elliot</b><span class="pending-tag">$18.67 PENDING</span></div></div>
+              <div class="debt-amt">$56.67</div>
+              <a class="pay" href="#">Venmo</a>
+            </div>
+            <div class="debt">
+              <div class="debt-main"><div class="debt-who"><b>Venus</b> owes <b>Jz</b></div></div>
+              <div class="debt-amt">$38.00</div>
+              <a class="pay" href="#">Venmo</a>
+            </div>
+            <div class="debt">
+              <div class="debt-main"><div class="debt-who"><b>Jack</b> owes <b>Jz</b></div></div>
+              <div class="debt-amt">$33.98</div>
+              <a class="pay" href="#">Venmo</a>
+            </div>
+            <div class="debt">
+              <div class="debt-main"><div class="debt-who"><b>Jack</b> owes <b>Yan</b></div></div>
+              <div class="debt-amt">$19.35</div>
+              <a class="pay" href="#">Venmo</a>
+            </div>
+            <div class="debt">
+              <div class="debt-main"><div class="debt-who"><b>Jack</b> owes <b>Xiaoyue</b></div></div>
+              <div class="debt-amt">$3.33</div>
+              <a class="pay" href="#">Venmo</a>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-hist" style="display:none">
+          <div class="card">
+            <div class="card-title">History</div>
+            <div class="drow" style="padding:10px 16px"><span><b>Jz</b> added “Campground”</span><span style="color:var(--text-muted)">Aug 20</span></div>
+            <div class="drow" style="padding:10px 16px"><span><b>Elliot</b> added “costco”</span><span style="color:var(--text-muted)">Aug 24</span></div>
+            <div class="drow" style="padding:10px 16px"><span><b>Venus</b> paid <b>Elliot</b> $18.67 · pending</span><span style="color:var(--text-muted)">Aug 25</span></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <button class="fab">+ Add expense</button>
+  <nav class="tabbar">
+    <button class="active" onclick="setTab('exp', null)"><i class="icon">🧾</i>Expenses</button>
+    <button onclick="setTab('settle', null)"><i class="icon">🤝</i>Settle Up<span style="font-size:.6rem">1</span></button>
+    <button onclick="setTab('hist', null)"><i class="icon">🕘</i>History</button>
+  </nav>
+</div>
+<script>
+  function setTab(name, btn) {
+    ['exp','settle','hist'].forEach(t => document.getElementById('tab-'+t).style.display = t===name ? '' : 'none');
+    document.querySelectorAll('.segmented button').forEach(b => b.classList.remove('active'));
+    const seg = {exp:0, settle:1, hist:2}[name];
+    document.querySelectorAll('.segmented button')[seg].classList.add('active');
+  }
+</script>
+</body>
+</html>

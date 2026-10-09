@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SplitDumb — Utilitarian Dense</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  .wrap, .wrap > *, .content, .panel, .list, .nav { min-width: 0; }
+  .txflow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root {
+    --bg: #fbfbfc; --surface: #fff; --surface2: #f6f6f8;
+    --border: #e8e8ec; --border-strong: #d4d4da;
+    --text: #18181b; --text-dim: #52525b; --text-muted: #a1a1aa;
+    --accent: #18181b; --blue: #2563eb; --green: #16a34a; --red: #dc2626; --amber: #d97706;
+    --radius: 8px;
+  }
+  body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  .topbar { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 16px;
+    background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+  .crumb { font-weight: 600; font-size: 13px; }
+  .crumb span { color: var(--text-muted); font-weight: 400; }
+  .code { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer; }
+  .btn:hover { background: var(--surface2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.danger { color: var(--red); border-color: #fecaca; background: #fef2f2; }
+  .kbd { font-family: ui-monospace, monospace; font-size: 10px; border: 1px solid var(--border-strong);
+    border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--text-muted); }
+
+  .wrap { display: grid; grid-template-columns: 1fr; }
+  .panel { border-bottom: 1px solid var(--border); }
+  .cols { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border);
+    background: var(--surface2); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; }
+  .cols > div { padding: 6px 12px; }
+  .mrow { display: grid; grid-template-columns: repeat(7, 1fr); align-items: center; background: var(--surface);
+    border-bottom: 1px solid var(--border); cursor: pointer; }
+  .mrow:hover { background: var(--surface2); }
+  .mrow > div { padding: 7px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who { display: flex; align-items: center; gap: 7px; font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .me-tag { font-size: 10px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 0 5px; border-radius: 3px; }
+  .pos { color: var(--green); font-weight: 600; } .neg { color: var(--red); font-weight: 600; }
+  .paid { color: var(--text-dim); }
+
+  .content { display: flex; border-bottom: 1px solid var(--border); }
+  .nav { width: 168px; border-right: 1px solid var(--border); background: var(--surface); padding: 8px; display: none; flex-direction: column; gap: 1px; }
+  .nav a { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px;
+    color: var(--text-dim); text-decoration: none; font-weight: 500; font-size: 12.5px; cursor: pointer; }
+  .nav a.active { background: var(--surface2); color: var(--text); }
+  .nav a:hover { background: var(--surface2); }
+  .nav .count { font-size: 10px; background: #fef3c7; color: var(--amber); border-radius: 9999px; padding: 1px 6px; font-weight: 700; }
+
+  .list { flex: 1; min-width: 0; }
+  .lhead { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface); align-items: center; }
+  .search { flex: 1; max-width: 320px; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px;
+    font-size: 12.5px; color: var(--text-muted); background: var(--bg); }
+  .fchip { font-size: 11.5px; border: 1px solid var(--border); background: var(--surface); border-radius: 9999px;
+    padding: 3px 10px; color: var(--text-dim); cursor: pointer; }
+  .fchip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .erow { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--border);
+    background: var(--surface); cursor: pointer; }
+  .erow:hover { background: var(--surface2); }
+  .erow .desc { width: 200px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .erow .meta { flex: 1; color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .erow .amt { width: 84px; text-align: right; font-weight: 600; }
+  .erow .acts { width: 76px; text-align: right; color: var(--text-muted); font-size: 11px; opacity: 0; }
+  .erow:hover .acts { opacity: 1; }
+  .eexpand { display: none; padding: 8px 14px 12px; background: var(--surface2); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .erow.open + .eexpand { display: block; }
+  .srow { display: flex; justify-content: space-between; padding: 2px 0; color: var(--text-dim); }
+  .srow b { color: var(--text); }
+
+  .trow { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .trow .flow { flex: 1; font-size: 12.5px; }
+  .trow .flow b { font-weight: 600; }
+  .tag { font-size: 10px; font-weight: 700; border-radius: 3px; padding: 1px 6px; }
+  .tag.pend { background: #fef3c7; color: var(--amber); }
+  .venmo { font-size: 11px; font-weight: 600; color: #3d95ce; border: 1px solid #bfdbfe; border-radius: 5px; padding: 2px 8px; text-decoration: none; }
+  .zelle { font-size: 11px; font-weight: 600; color: var(--text-dim); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; text-decoration: none; }
+
+  .mnav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255,255,255,.94);
+    backdrop-filter: blur(10px); border-top: 1px solid var(--border); z-index: 5; }
+  .mnav a { flex: 1; text-align: center; padding: 9px 4px; font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-decoration: none; }
+  .mnav a.active { color: var(--accent); }
+  .madd { position: fixed; right: 16px; bottom: 64px; width: 48px; height: 48px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none; font-size: 22px; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,.18); z-index: 5; }
+  body { padding-bottom: 56px; }
+
+  @media (max-width: 899px) {
+    /* Collapse the 7-col balance table: keep who / balance / status */
+    .cols { display: none; }
+    .mrow { grid-template-columns: minmax(0,1.3fr) auto minmax(72px,auto); }
+    .mrow > div:nth-child(2), .mrow > div:nth-child(3),
+    .mrow > div:nth-child(4), .mrow > div:nth-child(5) { display: none; }
+    .erow .desc { width: 44%; }
+    .erow .meta { display: none; }
+    .erow .acts { display: none; }
+    .lhead { flex-wrap: wrap; }
+    .search { max-width: none; }
+    .topbar .btn.danger { display: none; }
+    .topbar span:last-of-type { display: none; }
+  }
+  @media (min-width: 900px) {
+    .wrap { grid-template-columns: 240px 1fr; }
+    .nav { display: flex; }
+    .mnav, .madd { display: none; }
+    body { padding-bottom: 0; }
+    .panel-right { border-left: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="crumb">SplitDumb <span>/</span> Camping august</div>
+  <span class="code">ZNVAJR</span>
+  <span class="spacer"></span>
+  <span style="color:var(--text-muted);font-size:11px">Search <span class="kbd">⌘K</span></span>
+  <button class="btn danger">🗑 Delete group</button>
+  <button class="btn primary">+ Add expense</button>
+</div>
+
+<div class="wrap">
+  <!-- members/balances table -->
+  <div class="panel">
+    <div class="cols">
+      <div>Member</div><div></div><div></div><div>Paid</div><div>Share</div><div>Balance</div><div></div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#3b82f6"></span>Jz <span class="me-tag">you</span></div>
+      <div class="num paid">$147.00</div><div class="num paid"></div>
+      <div class="num paid">$147.00</div><div class="num paid">$75.02</div>
+      <div class="num pos">+71.98</div><div class="paid" style="font-size:11px">3 payments due in</div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#ef4444"></span>Elliot</div>
+      <div class="num paid"></div><div class="num paid"></div>
+      <div class="num paid">$132.00</div><div class="num paid">$56.64</div>
+      <div class="num pos">+75.36</div><div class="paid" style="font-size:11px">2 payments due in</div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#22c55e"></span>Jack</div>
+      <div class="num paid"></div><div class="num paid"></div>
+      <div class="num paid">—</div><div class="num paid">$56.66</div>
+      <div class="num neg">−56.66</div><div class="paid" style="font-size:11px">owes 3 people</div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#f97316"></span>Yan</div>
+      <div class="num paid"></div><div class="num paid"></div>
+      <div class="num paid">$76.00</div><div class="num paid">$56.65</div>
+      <div class="num pos">+19.35</div><div class="paid" style="font-size:11px">1 payment due in</div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#a855f7"></span>Xiaoyue</div>
+      <div class="num paid"></div><div class="num paid"></div>
+      <div class="num paid">$60.00</div><div class="num paid">$56.67</div>
+      <div class="num pos">+3.33</div><div class="paid" style="font-size:11px">1 payment due in</div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#0ea5e9"></span>Yuanze</div>
+      <div class="num paid"></div><div class="num paid"></div>
+      <div class="num paid">—</div><div class="num paid">$56.67</div>
+      <div class="num neg">−56.67</div><div class="paid" style="font-size:11px">owes 1 person</div>
+    </div>
+    <div class="mrow">
+      <div class="who"><span class="dot" style="background:#eab308"></span>Venus</div>
+      <div class="num paid"></div><div class="num paid"></div>
+      <div class="num paid">—</div><div class="num paid">$56.67</div>
+      <div class="num neg">−56.67</div><div class="paid" style="font-size:11px">owes 2 people · 1 pending</div>
+    </div>
+  </div>
+
+  <!-- main split view -->
+  <div class="content">
+    <nav class="nav">
+      <a class="active" onclick="setTab('exp', this)">Expenses <span>4</span></a>
+      <a onclick="setTab('settle', this)">Settle up <span class="count">1</span></a>
+      <a onclick="setTab('hist', this)">History</a>
+      <a onclick="setTab('mem', this)">Members <span>7</span></a>
+      <a onclick="setTab('grp', this)">Group settings</a>
+    </nav>
+
+    <div class="list">
+      <div class="lhead">
+        <input class="search" placeholder="Filter expenses…" oninput="filterRows(this.value)">
+        <span class="fchip">My expenses</span>
+        <span class="fchip">Last 30 days</span>
+        <span class="fchip">Category: All</span>
+      </div>
+
+      <div id="tab-exp">
+        <div class="erow open" onclick="this.classList.toggle('open')">
+          <span class="desc">Campground</span>
+          <span class="meta">Jz · Per Day · Aug 20 · accommodation</span>
+          <span class="amt num">$147.00</span>
+          <span class="acts">Edit · Delete</span>
+        </div>
+        <div class="eexpand">
+          <div class="srow"><span>Jz — 2 nights (Night 1, Night 2)</span><b>$36.74</b></div>
+          <div class="srow"><span>Elliot, Jack — 1 night</span><b>$18.37 ea</b></div>
+          <div class="srow"><span>Yan, Xiaoyue, Yuanze, Venus — 1 night</span><b>$18.38 ea</b></div>
+        </div>
+        <div class="erow" onclick="this.classList.toggle('open')">
+          <span class="desc">costco</span>
+          <span class="meta">Elliot · Equal · Aug 24 · groceries</span>
+          <span class="amt num">$132.00</span>
+          <span class="acts">Edit · Delete</span>
+        </div>
+        <div class="erow" onclick="this.classList.toggle('open')">
+          <span class="desc">Hamrt</span>
+          <span class="meta">Yan · Equal · Aug 20 · groceries</span>
+          <span class="amt num">$76.00</span>
+          <span class="acts">Edit · Delete</span>
+        </div>
+        <div class="erow" onclick="this.classList.toggle('open')">
+          <span class="desc">牛肉</span>
+          <span class="meta">Xiaoyue · Equal · Aug 20 · dining</span>
+          <span class="amt num">$60.00</span>
+          <span class="acts">Edit · Delete</span>
+        </div>
+      </div>
+
+      <div id="tab-settle" style="display:none">
+        <div class="trow"><span class="flow"><b>Yuanze</b> → <b>Elliot</b></span><span class="num neg">$56.67</span><a class="venmo" href="#">Venmo</a><a class="zelle" href="#">Zelle</a></div>
+        <div class="trow"><span class="flow"><b>Venus</b> → <b>Elliot</b> <span class="tag pend">$18.67 PENDING</span></span><span class="num neg">$56.67</span><a class="venmo" href="#">Venmo</a><a class="zelle" href="#">Zelle</a></div>
+        <div class="trow"><span class="flow"><b>Venus</b> → <b>Jz</b></span><span class="num neg">$38.00</span><a class="venmo" href="#">Venmo</a><a class="zelle" href="#">Zelle</a></div>
+        <div class="trow"><span class="flow"><b>Jack</b> → <b>Jz</b></span><span class="num neg">$33.98</span><a class="venmo" href="#">Venmo</a><a class="zelle" href="#">Zelle</a></div>
+        <div class="trow"><span class="flow"><b>Jack</b> → <b>Yan</b></span><span class="num neg">$19.35</span><a class="venmo" href="#">Venmo</a><a class="zelle" href="#">Zelle</a></div>
+        <div class="trow"><span class="flow"><b>Jack</b> → <b>Xiaoyue</b></span><span class="num neg">$3.33</span><a class="venmo" href="#">Venmo</a><a class="zelle" href="#">Zelle</a></div>
+      </div>
+
+      <div id="tab-hist" style="display:none">
+        <div class="erow" style="cursor:default"><span class="desc">settlement</span><span class="meta">Venus paid Elliot $18.67 — pending confirmation</span><span class="amt num" style="color:var(--amber)">$18.67</span><span class="acts">✓ ✗</span></div>
+        <div class="erow" style="cursor:default"><span class="desc">expense</span><span class="meta">Elliot added "costco" ($132.00, equal split)</span><span class="amt num">$132.00</span><span></span></div>
+        <div class="erow" style="cursor:default"><span class="desc">expense</span><span class="meta">Jz added "Campground" ($147.00, per day)</span><span class="amt num">$147.00</span><span></span></div>
+      </div>
+
+      <div id="tab-mem" style="display:none"></div>
+      <div id="tab-grp" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<button class="madd" onclick="alert('Add expense')">+</button>
+<nav class="mnav">
+  <a class="active" onclick="setTab('exp', this)">Expenses</a>
+  <a onclick="setTab('settle', this)">Settle up (1)</a>
+  <a onclick="setTab('hist', this)">History</a>
+</nav>
+<script>
+  function setTab(name, el) {
+    ['exp','settle','hist','mem','grp'].forEach(t => {
+      const d = document.getElementById('tab-'+t); if (d) d.style.display = t===name ? '' : 'none';
+    });
+    document.querySelectorAll('.nav a, .mnav a').forEach(a => a.classList.remove('active'));
+    if (el) el.classList.add('active');
+    document.querySelectorAll('.nav a, .mnav a').forEach(a => { if (a.textContent.toLowerCase().startsWith(name==='exp'?'expenses':name==='settle'?'settle':name==='hist'?'history':'members')) a.classList.add('active'); });
+  }
+  function filterRows(q) {
+    q = q.toLowerCase();
+    document.querySelectorAll('#tab-exp .erow').forEach(r => {
+      r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+</script>
+</body>
+</html>
