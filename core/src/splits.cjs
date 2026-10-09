@@ -13,9 +13,11 @@ function calculateSplits(type, amount, splitMemberIds, opts = {}) {
   if (type === 'equal') {
     const sharePerPerson = Math.round((roundedAmount / splitMemberIds.length) * 100) / 100;
     const totalAllocated = Math.round(sharePerPerson * splitMemberIds.length * 100) / 100;
-    const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
+    // Remainder in integer cents; may be negative (over-allocated) — correct both signs
+    const remainderCents = Math.round((roundedAmount - totalAllocated) * 100);
     splitMemberIds.forEach((mid, i) => {
-      shares[mid] = sharePerPerson + (i < Math.round(remainder * 100) ? 0.01 : 0);
+      const adj = i < Math.abs(remainderCents) ? (remainderCents > 0 ? 0.01 : -0.01) : 0;
+      shares[mid] = Math.round((sharePerPerson + adj) * 100) / 100;
     });
   } else if (type === 'shares') {
     if (!sharesInput) return { shares: {}, error: 'shares required for shares split type' };
@@ -30,11 +32,13 @@ function calculateSplits(type, amount, splitMemberIds, opts = {}) {
       shares[mid] = shareAmt;
       totalAllocated += shareAmt;
     });
-    const remainder = Math.round((roundedAmount - totalAllocated) * 100) / 100;
-    if (remainder > 0) {
+    // Remainder in integer cents; may be negative (over-allocated) — correct both signs
+    const remainderCents = Math.round((roundedAmount - totalAllocated) * 100);
+    if (remainderCents !== 0) {
       const sortedByShareDesc = [...included].sort((a, b) => Number(b[1]) - Number(a[1]));
-      for (let i = 0; i < Math.round(remainder * 100) && i < sortedByShareDesc.length; i++) {
-        shares[sortedByShareDesc[i][0]] = Math.round((shares[sortedByShareDesc[i][0]] + 0.01) * 100) / 100;
+      const dir = remainderCents > 0 ? 0.01 : -0.01;
+      for (let i = 0; i < Math.abs(remainderCents) && i < sortedByShareDesc.length; i++) {
+        shares[sortedByShareDesc[i][0]] = Math.round((shares[sortedByShareDesc[i][0]] + dir) * 100) / 100;
       }
     }
   } else if (type === 'nights') {
@@ -119,6 +123,16 @@ function calculateSplits(type, amount, splitMemberIds, opts = {}) {
     for (const [mid, pct] of Object.entries(percentages)) {
       if (!splitMemberIds.includes(mid)) return { shares: {}, error: `Member ${mid} not in split` };
       shares[mid] = Math.round(roundedAmount * pct / 100 * 100) / 100;
+    }
+    // Per-share rounding can leave a residual of a few cents — distribute to largest shares
+    const totalAllocated = Object.values(shares).reduce((s, v) => s + v, 0);
+    const residualCents = Math.round((roundedAmount - totalAllocated) * 100);
+    if (residualCents !== 0) {
+      const sortedByShareDesc = [...splitMemberIds].sort((a, b) => (shares[b] || 0) - (shares[a] || 0));
+      const dir = residualCents > 0 ? 0.01 : -0.01;
+      for (let i = 0; i < Math.abs(residualCents) && i < sortedByShareDesc.length; i++) {
+        shares[sortedByShareDesc[i]] = Math.round(((shares[sortedByShareDesc[i]] || 0) + dir) * 100) / 100;
+      }
     }
   } else {
     return { shares: {}, error: `Unknown split type: ${type}` };

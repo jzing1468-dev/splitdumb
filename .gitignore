@@ -9,3 +9,5 @@ server/uploads/
 *.map
 .hermes/
 PROGRESS.md
+server/splitdumb.db.bak-*
+server/splitdumb.db.bak-*
