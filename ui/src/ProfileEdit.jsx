@@ -35,12 +35,24 @@ function ProfileEdit({ member, adapter, onClose, onSaved }) {
     }
   };
 
-  // Helper to extract Venmo username for display
+  // Normalize any Venmo input to venmo.com/<path>
+  const normalizeVenmo = (input) => {
+    if (!input) return '';
+    let v = input.trim();
+    // Strip protocol
+    v = v.replace(/^https?:\/\/(www\.)?/i, '');
+    // Strip @ prefix
+    if (v.startsWith('@')) v = v.slice(1);
+    // If it already starts with venmo.com/, keep as-is (covers username AND code links)
+    if (v.match(/^venmo\.com\//i)) return v;
+    // Otherwise treat the whole thing as a username
+    return `venmo.com/${v}`;
+  };
+
   const venmoUsername = (link) => {
-    if (!link) return '';
-    if (link.startsWith('@')) return link.slice(1);
-    const match = link.match(/venmo\.com\/(.+)/);
-    return match ? match[1] : link;
+    const normalized = normalizeVenmo(link);
+    const match = normalized.match(/venmo\.com\/(.+)/);
+    return match ? match[1] : '';
   };
 
   return (
@@ -69,7 +81,7 @@ function ProfileEdit({ member, adapter, onClose, onSaved }) {
               value={venmoLink} onChange={e => setVenmoLink(e.target.value)} />
             {venmoLink && (
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                Will show as: venmo.com/{venmoUsername(venmoLink)}
+                Saved as: {normalizeVenmo(venmoLink).startsWith('venmo.com/code?') ? 'Venmo code link' : normalizeVenmo(venmoLink)} · Opens Venmo app on tap
               </div>
             )}
           </div>

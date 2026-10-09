@@ -80,6 +80,7 @@ export const api = {
 
   addSettlement: (code, data) => memberRequest(code, `/groups/${code}/settlements`, { method: 'POST', body: JSON.stringify(data) }),
   confirmSettlement: (code, id, status) => memberRequest(code, `/groups/${code}/settlements/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  cancelSettlement: (code, id) => memberRequest(code, `/groups/${code}/settlements/${id}`, { method: 'DELETE' }),
 
   getAuditLog: (code, limit) => request(`/groups/${code}/audit?limit=${limit || 50}`),
 

@@ -355,20 +355,23 @@ app.patch('/api/v1/groups/:code/members/:id', (req, res) => {
   }
 
   if (venmo_link !== undefined) {
-    // Accept venmo.com/username, @username, full URL, or empty string to clear
+    // Accept: venmo.com/username, @username, full URL, venmo.com/code?user_id=..., or empty to clear
     let normalized = venmo_link ? venmo_link.trim() : null;
     if (normalized) {
-      // Normalize to venmo.com/username format
-      if (normalized.startsWith('@')) {
-        normalized = 'venmo.com/' + normalized.slice(1);
-      } else if (!normalized.startsWith('http') && !normalized.startsWith('venmo.com')) {
-        normalized = 'venmo.com/' + normalized;
-      }
       // Strip https?:// prefix for consistent storage
       normalized = normalized.replace(/^https?:\/\/(www\.)?/, '');
-      // Basic validation: must contain venmo.com/
-      if (!/^venmo\.com\/[A-Za-z0-9_.-]+$/.test(normalized)) {
-        return res.status(400).json({ error: 'Venmo link must be a venmo.com/username URL or @username' });
+      // Strip @ prefix and treat as username
+      if (normalized.startsWith('@')) {
+        normalized = 'venmo.com/' + normalized.slice(1);
+      } else if (!normalized.startsWith('venmo.com') && !normalized.startsWith('http')) {
+        // Plain username — wrap in venmo.com/
+        normalized = 'venmo.com/' + normalized;
+      }
+      // Validation: accept venmo.com/username OR venmo.com/code?user_id=...
+      const isUsername = /^venmo\.com\/[A-Za-z0-9_.-]+$/.test(normalized);
+      const isCodeLink = /^venmo\.com\/code\?user_id=\d+/.test(normalized);
+      if (!isUsername && !isCodeLink) {
+        return res.status(400).json({ error: 'Venmo link must be venmo.com/username, @username, or a venmo.com/code?user_id=... link' });
       }
     }
     updates.push('venmo_link = ?');
@@ -812,6 +815,25 @@ app.post('/api/v1/groups/:code/settlements', (req, res) => {
   }
 });
 
+app.delete('/api/v1/groups/:code/settlements/:id', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const settlement = prepare('SELECT * FROM settlements WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  if (!settlement) return res.status(404).json({ error: 'Settlement not found' });
+
+  // Confirmed settlements are netted into balances — they can't be cancelled, only disputed records corrected
+  if (settlement.status === 'confirmed') {
+    return res.status(400).json({ error: 'Confirmed settlements cannot be deleted' });
+  }
+
+  prepare('DELETE FROM settlements WHERE id = ?').run(req.params.id);
+  saveDb();
+  const fromName = prepare('SELECT name FROM members WHERE id = ?').get(settlement.from_id)?.name || '?';
+  const toName = prepare('SELECT name FROM members WHERE id = ?').get(settlement.to_id)?.name || '?';
+  auditLog(req, 'delete', 'settlement', req.params.id, { from: fromName, to: toName, amount: settlement.amount });
+  res.json({ ok: true });
+});
+
 app.patch('/api/v1/groups/:code/settlements/:id', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
@@ -823,7 +845,9 @@ app.patch('/api/v1/groups/:code/settlements/:id', (req, res) => {
 
   prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, req.params.id);
   saveDb();
-  auditLog(req, status, 'settlement', req.params.id, { from: settlement.from_id, to: settlement.to_id, amount: settlement.amount });
+  const fromName = prepare('SELECT name FROM members WHERE id = ?').get(settlement.from_id)?.name || '?';
+  const toName = prepare('SELECT name FROM members WHERE id = ?').get(settlement.to_id)?.name || '?';
+  auditLog(req, status, 'settlement', req.params.id, { from: fromName, to: toName, amount: settlement.amount });
   const updated = prepare(
     'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.id = ?'
   ).get(req.params.id);

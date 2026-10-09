@@ -11,14 +11,16 @@ import NumberInput from './NumberInput';
  *   - onClose: () => void
  *   - onSaved: () => void
  */
-function AddSettlement({ members, debts, adapter, onClose, onSaved }) {
-  const [fromId, setFromId] = useState(debts[0]?.from?.id || '');
-  const [toId, setToId] = useState(debts[0]?.to?.id || '');
-  const [amount, setAmount] = useState(debts[0]?.amount?.toString() || '');
+function AddSettlement({ members, debts, adapter, actor, onClose, onSaved }) {
+  const actorDebt = debts.find(d => d.from.id === actor?.id);
+  const [fromId, setFromId] = useState(actorDebt?.from?.id || debts[0]?.from?.id || '');
+  const [toId, setToId] = useState(actorDebt?.to?.id || debts[0]?.to?.id || '');
+  const [amount, setAmount] = useState((actorDebt || debts[0])?.amount?.toString() || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const maxAmount = useMemo(() => {
+  // Amount currently suggested for this pair (0 if the suggestion has no such pair)
+  const outstanding = useMemo(() => {
     if (!fromId || !toId) return 0;
     return debts.filter(d => d.from.id === fromId && d.to.id === toId)
       .reduce((sum, d) => sum + d.amount, 0);
@@ -36,7 +38,9 @@ function AddSettlement({ members, debts, adapter, onClose, onSaved }) {
     const amt = parseFloat(amount);
     if (!fromId || !toId) { setError('Select both parties'); return; }
     if (!amt || amt <= 0) { setError('Amount must be > $0'); return; }
-    if (amt > maxAmount + 0.01) { setError(`Can't exceed $${maxAmount.toFixed(2)}`); return; }
+    // Only cap when the suggestion actually has this pair — real-world payments
+    // outside the suggested pairs are allowed and net out once confirmed
+    if (outstanding > 0 && amt > outstanding + 0.01) { setError(`Can't exceed $${outstanding.toFixed(2)} — that's what's owed for this pair`); return; }
     setSaving(true);
     try {
       await adapter.addSettlement({ from_id: fromId, to_id: toId, amount: amt });
@@ -85,10 +89,16 @@ function AddSettlement({ members, debts, adapter, onClose, onSaved }) {
             <label className="form-label">Amount</label>
             <NumberInput step="0.01" min="0.01" placeholder="0.00"
               value={amount} onChange={e => setAmount(e.target.value)} />
-            {maxAmount > 0 && (
+            {outstanding > 0 ? (
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                Max: ${maxAmount.toFixed(2)}
+                Suggested for this pair: ${outstanding.toFixed(2)}
               </div>
+            ) : (
+              fromId && toId && (
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  No suggested debt between these two — a payment here nets against other balances once confirmed
+                </div>
+              )
             )}
           </div>
 

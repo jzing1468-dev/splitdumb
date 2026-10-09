@@ -74,6 +74,7 @@ function Group() {
     addSettlement: async (data) => api.addSettlement(code, data),
     confirmSettlement: async (id) => api.confirmSettlement(code, id, 'confirmed'),
     disputeSettlement: async (id) => api.confirmSettlement(code, id, 'disputed'),
+    cancelSettlement: async (id) => api.cancelSettlement(code, id),
     removeMember: async (id, name) => api.removeMember(code, id, true),
     deleteGroup: async () => api.deleteGroup(code),
     uploadAttachment: async (expenseId, file) => api.uploadAttachment(code, expenseId, file),

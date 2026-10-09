@@ -15,11 +15,11 @@ import NumberInput from './NumberInput';
  *   - AttachmentManager: React component (optional, for server app only)
  *   - attachmentProps: object (optional, passed to AttachmentManager)
  */
-function AddExpense({ members, expense, adapter, features = {}, onClose, onSaved, AttachmentManager, attachmentProps }) {
+function AddExpense({ members, expense, adapter, features = {}, actor, onClose, onSaved, AttachmentManager, attachmentProps }) {
   const isEditing = !!expense;
   const [description, setDescription] = useState(expense?.description || '');
   const [amount, setAmount] = useState(expense?.amount?.toString() || '');
-  const [payerId, setPayerId] = useState(expense?.payer_id || expense?.payerId || members?.[0]?.id || '');
+  const [payerId, setPayerId] = useState(expense?.payer_id || expense?.payerId || actor?.id || members?.[0]?.id || '');
   const [splitType, setSplitType] = useState(expense?.split_type || expense?.splitType || 'equal');
   const [includePayer, setIncludePayer] = useState(() => {
     if (!expense) return true;
