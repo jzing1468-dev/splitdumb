@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>005 — Notes: Header Peek Strip</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --surface: #ffffff; --border: rgba(0,0,0,0.06);
+    --text: rgba(0,0,0,0.90); --text-dim: #615d59; --text-muted: #a39e98;
+    --primary: #0075de; --green: #1aae39; --amber: #ec7e00;
+    --amber-dim: rgba(236,126,0,0.08); --red: #e23b4a;
+    --radius: 12px; --radius-sm: 8px; --radius-xs: 6px; --radius-full: 9999px;
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.03);
+    --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'SF Mono', 'JetBrains Mono', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background: var(--bg); font-family: var(--font); color: var(--text); padding: 0 0 60px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+
+  /* group header */
+  .group-header { padding: 30px 0 20px; }
+  .group-kicker { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .group-title { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* ★ THE PEEK STRIP — sits in the header area, collapsed by default */
+  .peek { margin-top: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,0.04); overflow: hidden; }
+  .peek-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; }
+  .peek-bar:hover { background: rgba(0,0,0,0.015); }
+  .peek-pin { font-size: 0.9rem; }
+  .peek-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--amber); white-space: nowrap; }
+  .peek-preview { font-size: 0.86rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .peek-count { font-size: 0.74rem; font-weight: 600; color: var(--text-dim); background: var(--amber-dim); border-radius: var(--radius-full); padding: 3px 9px; white-space: nowrap; }
+  .peek-caret { font-size: 0.7rem; color: var(--text-muted); transition: transform 0.25s cubic-bezier(0.4,0,0.2,1); }
+  .peek.open .peek-caret { transform: rotate(180deg); }
+
+  /* expandable board */
+  .peek-board { max-height: 0; overflow: hidden; transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1); }
+  .peek.open .peek-board { max-height: 720px; }
+  .board-inner { padding: 6px 16px 18px; border-top: 1px solid var(--border); }
+  .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
+  .note { background: #fffdf5; border: 1px solid rgba(236,126,0,0.15); border-radius: var(--radius-sm); padding: 14px; }
+  .note.regular { background: var(--surface); border-color: var(--border); }
+  .note-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .avatar { width: 22px; height: 22px; border-radius: var(--radius-full); background: var(--amber-dim); color: var(--amber); font-size: 0.66rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .note.regular .avatar { background: rgba(0,117,222,0.08); color: var(--primary); }
+  .note-title { font-size: 0.8rem; font-weight: 700; flex: 1; }
+  .note-body { font-size: 0.82rem; line-height: 1.5; color: var(--text-dim); }
+  .note-body .mono { font-family: var(--font-mono); font-size: 0.78rem; }
+  .note-meta { margin-top: 8px; font-size: 0.68rem; color: var(--text-muted); }
+  .add-note { display: block; width: 100%; margin-top: 14px; padding: 10px; border: 1px dashed rgba(236,126,0,0.4); background: none; border-radius: var(--radius-sm); color: var(--amber); font-weight: 600; font-size: 0.82rem; cursor: pointer; font-family: var(--font); }
+  .add-note:hover { background: var(--amber-dim); }
+
+  /* page furniture below (context) */
+  .hero { margin-top: 20px; background: linear-gradient(135deg, #fff 0%, #fffdf5 100%); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 24px; }
+  .hero-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+  .hero-money { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0; }
+  .hero-money.pos { color: var(--green); }
+  .tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 16px; font-size: 0.85rem; font-weight: 600; color: var(--text-dim); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; font-family: var(--font); }
+  .tab.active { color: var(--text); border-bottom-color: var(--primary); }
+  .row { display: flex; justify-content: space-between; padding: 14px 4px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+  .row .amt { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="group-header">
+    <div class="group-kicker">Group</div>
+    <div class="group-title">Camping august</div>
+
+    <!-- ★ PEEK STRIP: collapsed preview → click → full board expands in place -->
+    <div class="peek" id="peek">
+      <div class="peek-bar" onclick="togglePeek()">
+        <span class="peek-pin">📌</span>
+        <span class="peek-label">Trip Notes</span>
+        <span class="peek-preview">Check-in 2:00pm Fri · Check-out 11:00am Sun · Pine Ridge Campground, Site 14</span>
+        <span class="peek-count">5 notes</span>
+        <span class="peek-caret">▼</span>
+      </div>
+      <div class="peek-board">
+        <div class="board-inner">
+          <div class="notes-grid">
+            <div class="note">
+              <div class="note-head"><span class="avatar">Jz</span><span class="note-title">📍 Campsite</span></div>
+              <div class="note-body">Pine Ridge Campground — <b>Site 14</b><br>8820 Cascade Hwy<br>Gate code <span class="mono">#4417</span></div>
+              <div class="note-meta">Jz · pinned · Aug 12</div>
+            </div>
+            <div class="note">
+              <div class="note-head"><span class="avatar">Jz</span><span class="note-title">🕐 Check-in / out</span></div>
+              <div class="note-body">Check-in <b>2:00pm Fri</b><br>Check-out <b>11:00am Sun</b><br>Quiet hours 10pm–7am</div>
+              <div class="note-meta">Jz · pinned · Aug 12</div>
+            </div>
+            <div class="note regular">
+              <div class="note-head"><span class="avatar">Ya</span><span class="note-title">🗓 Saturday plan</span></div>
+              <div class="note-body">Hike to Eagle Lake 9am (2h) → back for lunch, dinner at 7pm. Jack brings the stove.</div>
+              <div class="note-meta">Yan · Aug 20</div>
+            </div>
+            <div class="note regular">
+              <div class="note-head"><span class="avatar">El</span><span class="note-title">🚗 Cars</span></div>
+              <div class="note-body">Jz's car + Yan's. Leave <b>8:00am sharp</b> Friday from Elliot's place.</div>
+              <div class="note-meta">Elliot · Aug 21</div>
+            </div>
+            <div class="note regular">
+              <div class="note-head"><span class="avatar">Xy</span><span class="note-title">🎒 Packing</span></div>
+              <div class="note-body">Firewood from Costco ✓ — someone grab marshmallows + one more headlamp.</div>
+              <div class="note-meta">Xiaoyue · Aug 22</div>
+            </div>
+          </div>
+          <button class="add-note">＋ Add note</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- existing page content, untouched, shown for context -->
+  <div class="hero">
+    <div class="hero-label">You are owed</div>
+    <div class="hero-money pos">+$141.50</div>
+  </div>
+  <div class="tabs">
+    <button class="tab active">Expenses</button>
+    <button class="tab">Debts</button>
+    <button class="tab">History</button>
+  </div>
+  <div>
+    <div class="row"><span>🛒 Costco run</span><span class="amt">$132.00</span></div>
+    <div class="row"><span>⛺ Campground</span><span class="amt">$147.00</span></div>
+    <div class="row"><span>🥩 Hamrt</span><span class="amt">$76.00</span></div>
+    <div class="row"><span>🥩 牛肉</span><span class="amt">$60.00</span></div>
+  </div>
+</div>
+<script>
+  function togglePeek() { document.getElementById('peek').classList.toggle('open'); }
+</script>
+</body>
+</html>

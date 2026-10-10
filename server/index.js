@@ -248,6 +248,10 @@ app.get('/api/v1/groups/:code', (req, res) => {
     'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.group_id = ? ORDER BY s.created_at DESC'
   ).all(group.id);
 
+  const notes = prepare(
+    'SELECT n.*, m.name as author_name FROM notes n JOIN members m ON n.author_member_id = m.id WHERE n.group_id = ? ORDER BY n.pinned DESC, n.created_at DESC'
+  ).all(group.id);
+
   const debtInfo = calculateSimplifiedDebtsFromDb(group.id);
 
   res.json({
@@ -255,6 +259,7 @@ app.get('/api/v1/groups/:code', (req, res) => {
     members,
     expenses: expensesWithSplits,
     settlements,
+    notes,
     balances: debtInfo.balances,
     simplifiedDebts: debtInfo.transactions
   });
@@ -264,8 +269,9 @@ app.delete('/api/v1/groups/:code', requireAdmin, (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   auditLog(req, 'delete', 'group', group.id, { name: group.name, code: group.code });
-  // Delete cascading: settlements, splits, expenses, members, then group
+  // Delete cascading: settlements, splits, expenses, notes, members, then group
   prepare('DELETE FROM settlements WHERE group_id = ?').run(group.id);
+  prepare('DELETE FROM notes WHERE group_id = ?').run(group.id);
   const expIds = prepare('SELECT id FROM expenses WHERE group_id = ?').all(group.id);
   expIds.forEach(e => prepare('DELETE FROM splits WHERE expense_id = ?').run(e.id));
   prepare('DELETE FROM expenses WHERE group_id = ?').run(group.id);
@@ -852,6 +858,92 @@ app.patch('/api/v1/groups/:code/settlements/:id', (req, res) => {
     'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.id = ?'
   ).get(req.params.id);
   res.json(updated);
+});
+
+// ==================== NOTES ROUTES ====================
+
+app.post('/api/v1/groups/:code/notes', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const { title, body, pinned } = req.body;
+  if (!body || body.trim().length === 0 || body.length > 4000) {
+    return res.status(400).json({ error: 'Note body must be 1-4000 characters' });
+  }
+  const t = (title || '').trim();
+  if (t.length > 100) return res.status(400).json({ error: 'Note title must be at most 100 characters' });
+  if (!req.actorId) return res.status(400).json({ error: 'X-Member-Id header required' });
+  const author = prepare('SELECT id, name FROM members WHERE id = ? AND group_id = ?').get(req.actorId, group.id);
+  if (!author) return res.status(400).json({ error: 'Author must be a member of this group' });
+
+  const id = uuidv4();
+  try {
+    prepare('INSERT INTO notes (id, group_id, author_member_id, title, body, pinned) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, group.id, author.id, t || null, body.trim(), pinned ? 1 : 0);
+    saveDb();
+    auditLog(req, 'create', 'note', id, { title: t || body.trim().slice(0, 50) });
+    const note = prepare(
+      'SELECT n.*, m.name as author_name FROM notes n JOIN members m ON n.author_member_id = m.id WHERE n.id = ?'
+    ).get(id);
+    res.status(201).json(note);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create note' });
+  }
+});
+
+app.patch('/api/v1/groups/:code/notes/:id', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const note = prepare('SELECT * FROM notes WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  if (!note) return res.status(404).json({ error: 'Note not found' });
+
+  const { title, body, pinned } = req.body;
+  const changes = {};
+  let newTitle = note.title;
+  let newBody = note.body;
+  let newPinned = note.pinned;
+
+  if (title !== undefined) {
+    const t = (title || '').trim();
+    if (t.length > 100) return res.status(400).json({ error: 'Note title must be at most 100 characters' });
+    newTitle = t || null;
+    changes.title = t;
+  }
+  if (body !== undefined) {
+    if (!body.trim() || body.length > 4000) return res.status(400).json({ error: 'Note body must be 1-4000 characters' });
+    newBody = body.trim();
+    changes.body = body.trim().slice(0, 50);
+  }
+  if (pinned !== undefined) {
+    newPinned = pinned ? 1 : 0;
+    changes.pinned = !!newPinned;
+  }
+
+  try {
+    prepare('UPDATE notes SET title = ?, body = ?, pinned = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .run(newTitle, newBody, newPinned, req.params.id);
+    saveDb();
+    auditLog(req, 'update', 'note', req.params.id, changes);
+    const updated = prepare(
+      'SELECT n.*, m.name as author_name FROM notes n JOIN members m ON n.author_member_id = m.id WHERE n.id = ?'
+    ).get(req.params.id);
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update note' });
+  }
+});
+
+app.delete('/api/v1/groups/:code/notes/:id', (req, res) => {
+  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const note = prepare('SELECT * FROM notes WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  if (!note) return res.status(404).json({ error: 'Note not found' });
+
+  prepare('DELETE FROM notes WHERE id = ?').run(req.params.id);
+  saveDb();
+  auditLog(req, 'delete', 'note', req.params.id, { title: note.title || note.body.slice(0, 50) });
+  res.json({ ok: true });
 });
 
 // ==================== START ====================

@@ -76,6 +76,18 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_audit_member ON audit_log(member_id);
   CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
 
+  CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    author_member_id TEXT NOT NULL REFERENCES members(id),
+    title TEXT,
+    body TEXT NOT NULL,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_notes_group ON notes(group_id);
+
   CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY,
     expense_id TEXT NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,

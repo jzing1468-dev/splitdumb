@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>007 — Notes: Side Sheet Drawer</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --surface: #ffffff; --border: rgba(0,0,0,0.06);
+    --text: rgba(0,0,0,0.90); --text-dim: #615d59; --text-muted: #a39e98;
+    --primary: #0075de; --green: #1aae39; --amber: #ec7e00;
+    --amber-dim: rgba(236,126,0,0.08); --red: #e23b4a;
+    --radius: 12px; --radius-sm: 8px; --radius-full: 9999px;
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.03);
+    --shadow-lg: 0 8px 28px rgba(0,0,0,0.07), 0 4px 10px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04);
+    --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'SF Mono', 'JetBrains Mono', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background: var(--bg); font-family: var(--font); color: var(--text); padding: 0 0 60px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+
+  .group-header { padding: 30px 0 20px; }
+  .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .group-kicker { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .group-title { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* ★ header affordance: compact button + one-line pinned preview underneath */
+  .notes-btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: var(--radius-full); border: 1px solid rgba(236,126,0,0.35); background: var(--amber-dim); color: var(--amber); font-family: var(--font); font-size: 0.8rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .notes-btn:hover { background: rgba(236,126,0,0.14); }
+  .pinned-preview { margin-top: 14px; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; }
+  .pinned-preview .pin { color: var(--amber); }
+  .pinned-preview .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pinned-preview .more { color: var(--primary); font-weight: 600; white-space: nowrap; }
+
+  /* ★ THE SIDE SHEET — slides in from the right, full notes board */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.3); opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 40; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .sheet { position: fixed; top: 0; right: 0; height: 100%; width: 420px; max-width: 100vw; background: var(--bg-warm, #fdfdf8); box-shadow: var(--shadow-lg); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; }
+  .sheet.open { transform: none; }
+  .sheet-head { padding: 22px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .sheet-title { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+  .sheet-close { border: none; background: none; font-size: 1.05rem; cursor: pointer; color: var(--text-muted); padding: 4px 8px; }
+  .sheet-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .add-note { display: block; width: 100%; margin-bottom: 14px; padding: 12px; border: 1px dashed rgba(236,126,0,0.4); background: none; border-radius: var(--radius-sm); color: var(--amber); font-weight: 700; font-size: 0.85rem; cursor: pointer; font-family: var(--font); }
+  .add-note:hover { background: var(--amber-dim); }
+  .note { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; margin-bottom: 10px; }
+  .note.pinned { background: #fffdf5; border-color: rgba(236,126,0,0.2); }
+  .note-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .avatar { width: 22px; height: 22px; border-radius: var(--radius-full); background: rgba(0,117,222,0.08); color: var(--primary); font-size: 0.64rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .note.pinned .avatar { background: var(--amber-dim); color: var(--amber); }
+  .note-title { font-size: 0.82rem; font-weight: 700; flex: 1; }
+  .note-body { font-size: 0.82rem; line-height: 1.5; color: var(--text-dim); }
+  .mono { font-family: var(--font-mono); font-size: 0.78rem; }
+  .note-meta { margin-top: 7px; font-size: 0.68rem; color: var(--text-muted); }
+
+  /* context furniture */
+  .hero { margin-top: 20px; background: linear-gradient(135deg, #fff 0%, #fffdf5 100%); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 24px; }
+  .hero-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+  .hero-money { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0; color: var(--green); }
+  .tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 16px; font-size: 0.85rem; font-weight: 600; color: var(--text-dim); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; font-family: var(--font); }
+  .tab.active { color: var(--text); border-bottom-color: var(--primary); }
+  .row { display: flex; justify-content: space-between; padding: 14px 4px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+  .row .amt { font-family: var(--font-mono); }
+
+  @media (max-width: 639px) {
+    .sheet { width: 100vw; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="group-header">
+    <div class="header-row">
+      <div>
+        <div class="group-kicker">Group</div>
+        <div class="group-title">Camping august</div>
+      </div>
+      <!-- ★ compact entry point -->
+      <button class="notes-btn" onclick="openSheet()">📝 Trip Notes</button>
+    </div>
+    <!-- ★ pinned preview line, always visible in the header area -->
+    <div class="pinned-preview" onclick="openSheet()">
+      <span class="pin">📌</span>
+      <span class="txt">Campsite: Pine Ridge Site 14, gate code #4417 · Check-in 2pm Fri · Check-out 11am Sun</span>
+      <span class="more">5 notes →</span>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-label">You are owed</div>
+    <div class="hero-money">+$141.50</div>
+  </div>
+  <div class="tabs">
+    <button class="tab active">Expenses</button>
+    <button class="tab">Debts</button>
+    <button class="tab">History</button>
+  </div>
+  <div>
+    <div class="row"><span>🛒 Costco run</span><span class="amt">$132.00</span></div>
+    <div class="row"><span>⛺ Campground</span><span class="amt">$147.00</span></div>
+    <div class="row"><span>🥩 Hamrt</span><span class="amt">$76.00</span></div>
+    <div class="row"><span>🥩 牛肉</span><span class="amt">$60.00</span></div>
+  </div>
+</div>
+
+<!-- ★ side sheet -->
+<div class="scrim" id="scrim" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-head">
+    <span class="sheet-title">Trip Notes</span>
+    <button class="sheet-close" onclick="closeSheet()">✕</button>
+  </div>
+  <div class="sheet-body">
+    <button class="add-note">＋ Add note</button>
+    <div class="note pinned">
+      <div class="note-head"><span class="avatar">Jz</span><span class="note-title">📍 Campsite</span></div>
+      <div class="note-body">Pine Ridge Campground — <b>Site 14</b><br>8820 Cascade Hwy · gate code <span class="mono">#4417</span></div>
+      <div class="note-meta">Jz · pinned · Aug 12</div>
+    </div>
+    <div class="note pinned">
+      <div class="note-head"><span class="avatar">Jz</span><span class="note-title">🕐 Check-in / out</span></div>
+      <div class="note-body">Check-in <b>2:00pm Fri</b> · Check-out <b>11:00am Sun</b><br>Quiet hours 10pm–7am</div>
+      <div class="note-meta">Jz · pinned · Aug 12</div>
+    </div>
+    <div class="note">
+      <div class="note-head"><span class="avatar">Ya</span><span class="note-title">🗓 Saturday plan</span></div>
+      <div class="note-body">Hike to Eagle Lake 9am (2h) → back for lunch, dinner at 7pm. Jack brings the stove.</div>
+      <div class="note-meta">Yan · Aug 20</div>
+    </div>
+    <div class="note">
+      <div class="note-head"><span class="avatar">El</span><span class="note-title">🚗 Cars</span></div>
+      <div class="note-body">Jz's car + Yan's. Leave <b>8:00am sharp</b> Friday from Elliot's place.</div>
+      <div class="note-meta">Elliot · Aug 21</div>
+    </div>
+    <div class="note">
+      <div class="note-head"><span class="avatar">Xy</span><span class="note-title">🎒 Packing</span></div>
+      <div class="note-body">Firewood from Costco ✓ — someone grab marshmallows + one more headlamp.</div>
+      <div class="note-meta">Xiaoyue · Aug 22</div>
+    </div>
+  </div>
+</div>
+<script>
+  function openSheet() { document.getElementById('sheet').classList.add('open'); document.getElementById('scrim').classList.add('open'); }
+  function closeSheet() { document.getElementById('sheet').classList.remove('open'); document.getElementById('scrim').classList.remove('open'); }
+</script>
+</body>
+</html>

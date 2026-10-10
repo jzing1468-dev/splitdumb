@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>006 — Notes: Header Popover</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --surface: #ffffff; --border: rgba(0,0,0,0.06);
+    --text: rgba(0,0,0,0.90); --text-dim: #615d59; --text-muted: #a39e98;
+    --primary: #0075de; --green: #1aae39; --amber: #ec7e00;
+    --amber-dim: rgba(236,126,0,0.08); --red: #e23b4a;
+    --radius: 12px; --radius-sm: 8px; --radius-xs: 6px; --radius-full: 9999px;
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.03);
+    --shadow-lg: 0 8px 28px rgba(0,0,0,0.07), 0 4px 10px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04);
+    --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'SF Mono', 'JetBrains Mono', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background: var(--bg); font-family: var(--font); color: var(--text); padding: 0 0 60px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+
+  .group-header { padding: 30px 0 20px; }
+  .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .group-kicker { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .group-title { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* ★ THE NOTES PILL — lives in the header row, right side */
+  .notes-zone { position: relative; }
+  .notes-pill { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: var(--radius-full); border: 1px solid rgba(236,126,0,0.35); background: var(--amber-dim); color: var(--amber); font-family: var(--font); font-size: 0.8rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .notes-pill:hover { background: rgba(236,126,0,0.14); }
+  .notes-pill .badge { background: var(--amber); color: #fff; border-radius: var(--radius-full); font-size: 0.66rem; font-weight: 700; padding: 1px 7px; }
+
+  /* ★ THE POPOVER — anchored dropdown */
+  .popover { position: absolute; top: calc(100% + 10px); right: 0; width: 380px; max-width: calc(100vw - 40px); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); z-index: 20; }
+  .popover.open { opacity: 1; transform: none; pointer-events: auto; }
+  .pop-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; }
+  .pop-title { font-size: 0.85rem; font-weight: 700; }
+  .pop-title .sub { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); margin-left: 6px; }
+  .pop-add { border: none; background: var(--amber); color: #fff; font-family: var(--font); font-size: 0.74rem; font-weight: 700; border-radius: var(--radius-full); padding: 6px 12px; cursor: pointer; }
+  .pop-add:hover { background: #d06f00; }
+  .pop-list { max-height: 340px; overflow-y: auto; padding: 0 10px 10px; }
+  .note { padding: 10px; border-radius: var(--radius-sm); margin-bottom: 2px; }
+  .note:hover { background: rgba(0,0,0,0.025); }
+  .note-head { display: flex; align-items: center; gap: 8px; }
+  .avatar { width: 20px; height: 20px; border-radius: var(--radius-full); background: rgba(0,117,222,0.08); color: var(--primary); font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .note.pinned .avatar { background: var(--amber-dim); color: var(--amber); }
+  .note-title { font-size: 0.78rem; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note-body { font-size: 0.78rem; line-height: 1.45; color: var(--text-dim); margin-top: 3px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .note.pinned { background: #fffdf5; border: 1px solid rgba(236,126,0,0.15); margin-bottom: 6px; }
+  .note.pinned:hover { background: #fff8ea; }
+  .mono { font-family: var(--font-mono); font-size: 0.74rem; }
+  .pop-foot { padding: 10px 16px 14px; border-top: 1px solid var(--border); text-align: center; }
+  .pop-foot a { font-size: 0.76rem; font-weight: 600; color: var(--primary); text-decoration: none; cursor: pointer; }
+
+  /* context furniture */
+  .hero { margin-top: 20px; background: linear-gradient(135deg, #fff 0%, #fffdf5 100%); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 24px; }
+  .hero-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+  .hero-money { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0; color: var(--green); }
+  .tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 16px; font-size: 0.85rem; font-weight: 600; color: var(--text-dim); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; font-family: var(--font); }
+  .tab.active { color: var(--text); border-bottom-color: var(--primary); }
+  .row { display: flex; justify-content: space-between; padding: 14px 4px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+  .row .amt { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="group-header">
+    <div class="header-row">
+      <div>
+        <div class="group-kicker">Group</div>
+        <div class="group-title">Camping august</div>
+      </div>
+      <!-- ★ pill + popover -->
+      <div class="notes-zone">
+        <button class="notes-pill" onclick="togglePop()">📝 Trip Notes <span class="badge">2</span></button>
+        <div class="popover" id="pop">
+          <div class="pop-head">
+            <span class="pop-title">Trip Notes <span class="sub">5 total</span></span>
+            <button class="pop-add">＋ Add</button>
+          </div>
+          <div class="pop-list">
+            <div class="note pinned">
+              <div class="note-head"><span class="avatar">Jz</span><span class="note-title">📍 Campsite — Pine Ridge, Site 14</span></div>
+              <div class="note-body">8820 Cascade Hwy · gate code <span class="mono">#4417</span></div>
+            </div>
+            <div class="note pinned">
+              <div class="note-head"><span class="avatar">Jz</span><span class="note-title">🕐 Check-in 2pm Fri / out 11am Sun</span></div>
+              <div class="note-body">Quiet hours 10pm–7am</div>
+            </div>
+            <div class="note">
+              <div class="note-head"><span class="avatar">Ya</span><span class="note-title">🗓 Saturday plan</span></div>
+              <div class="note-body">Eagle Lake hike 9am → lunch → dinner 7pm. Jack brings the stove.</div>
+            </div>
+            <div class="note">
+              <div class="note-head"><span class="avatar">El</span><span class="note-title">🚗 Cars</span></div>
+              <div class="note-body">Jz's + Yan's. Leave 8:00am sharp Friday from Elliot's place.</div>
+            </div>
+            <div class="note">
+              <div class="note-head"><span class="avatar">Xy</span><span class="note-title">🎒 Packing</span></div>
+              <div class="note-body">Firewood ✓ — someone grab marshmallows + a headlamp.</div>
+            </div>
+          </div>
+          <div class="pop-foot"><a>Open full notes board →</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-label">You are owed</div>
+    <div class="hero-money">+$141.50</div>
+  </div>
+  <div class="tabs">
+    <button class="tab active">Expenses</button>
+    <button class="tab">Debts</button>
+    <button class="tab">History</button>
+  </div>
+  <div>
+    <div class="row"><span>🛒 Costco run</span><span class="amt">$132.00</span></div>
+    <div class="row"><span>⛺ Campground</span><span class="amt">$147.00</span></div>
+    <div class="row"><span>🥩 Hamrt</span><span class="amt">$76.00</span></div>
+    <div class="row"><span>🥩 牛肉</span><span class="amt">$60.00</span></div>
+  </div>
+</div>
+<script>
+  function togglePop() { document.getElementById('pop').classList.toggle('open'); }
+  document.addEventListener('click', e => {
+    const z = document.querySelector('.notes-zone');
+    if (!z.contains(e.target)) document.getElementById('pop').classList.remove('open');
+  });
+</script>
+</body>
+</html>

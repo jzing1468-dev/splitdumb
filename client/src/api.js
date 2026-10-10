@@ -84,6 +84,10 @@ export const api = {
 
   getAuditLog: (code, limit) => request(`/groups/${code}/audit?limit=${limit || 50}`),
 
+  addNote: (code, data) => memberRequest(code, `/groups/${code}/notes`, { method: 'POST', body: JSON.stringify(data) }),
+  editNote: (code, id, data) => memberRequest(code, `/groups/${code}/notes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteNote: (code, id) => memberRequest(code, `/groups/${code}/notes/${id}`, { method: 'DELETE' }),
+
   adminGroups: () => request('/admin/groups'),
 
   // Attachment APIs

@@ -5,3 +5,4 @@ export { default as IdentityPicker } from './IdentityPicker.jsx';
 export { default as ProfileEdit } from './ProfileEdit.jsx';
 export { default as NumberInput } from './NumberInput.jsx';
 export { default as ConfirmDialog } from './ConfirmDialog.jsx';
+export { default as NotesSheet } from './NotesSheet.jsx';

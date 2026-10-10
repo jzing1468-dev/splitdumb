@@ -5,6 +5,7 @@ import AddSettlement from './AddSettlement';
 import IdentityPicker from './IdentityPicker';
 import ProfileEdit from './ProfileEdit';
 import ConfirmDialog from './ConfirmDialog';
+import NotesSheet from './NotesSheet';
 
 /**
  * Shared GroupPage — pure React, receives data and callbacks as props.
@@ -32,6 +33,7 @@ function GroupPage({
   members,
   expenses,
   settlements,
+  notes,
   balances,
   transactions,
   actor,
@@ -53,6 +55,7 @@ function GroupPage({
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   const [showAddSettlement, setShowAddSettlement] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState(null);
   const [activeFilters, setActiveFilters] = useState({ mine: false, recent30: false });
@@ -291,6 +294,32 @@ function GroupPage({
           )}
         </div>
       </div>
+      {Array.isArray(notes) && adapter.addNote && (() => {
+        const pinnedPreview = (notes || []).filter(n => n.pinned)
+          .map(n => {
+            const firstLine = (n.body || '').split('\n')[0];
+            return n.title && firstLine ? `${n.title}: ${firstLine}` : (n.title || firstLine);
+          })
+          .join(' · ');
+        return (
+          <div className="notes-strip" onClick={() => setShowNotes(true)}>
+            <span className="notes-pill">
+              📝 Notes{(notes || []).length > 0 && <span className="notes-pill-count">{notes.length}</span>}
+            </span>
+            {pinnedPreview ? (
+              <>
+                <span className="notes-preview-pin">📌</span>
+                <span className="notes-preview-txt">{pinnedPreview}</span>
+              </>
+            ) : (
+              <span className="notes-preview-txt notes-preview-hint">
+                {(notes || []).length === 0 ? 'Airbnb details, schedule, packing list…' : 'No pinned notes'}
+              </span>
+            )}
+            <span className="notes-preview-more">→</span>
+          </div>
+        );
+      })()}
       {extraHeader}
       <div className="actor-badge">
         <span className="member-dot" style={{ background: actor.color || members?.find(m => m.id === actor.id)?.color || '#666' }} />
@@ -840,6 +869,17 @@ function GroupPage({
           actor={actor}
           onClose={() => setShowAddSettlement(false)}
           onSaved={() => { setShowAddSettlement(false); if (onRefresh) onRefresh(); }}
+        />
+      )}
+      {showNotes && Array.isArray(notes) && adapter.addNote && (
+        <NotesSheet
+          open={showNotes}
+          onClose={() => setShowNotes(false)}
+          notes={notes || []}
+          members={members || []}
+          actor={actor}
+          adapter={adapter}
+          onRefresh={onRefresh}
         />
       )}
     </div>

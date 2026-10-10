@@ -76,6 +76,9 @@ function Group() {
     disputeSettlement: async (id) => api.confirmSettlement(code, id, 'disputed'),
     cancelSettlement: async (id) => api.cancelSettlement(code, id),
     removeMember: async (id, name) => api.removeMember(code, id, true),
+    addNote: async (data) => api.addNote(code, data),
+    editNote: async (id, data) => api.editNote(code, id, data),
+    deleteNote: async (id) => api.deleteNote(code, id),
     deleteGroup: async () => api.deleteGroup(code),
     uploadAttachment: async (expenseId, file) => api.uploadAttachment(code, expenseId, file),
     selectMember: (member) => {
@@ -105,6 +108,7 @@ function Group() {
     payer_name: e.payer_name,
   }));
   const normalizedSettlements = group.settlements || [];
+  const normalizedNotes = group.notes || [];
   const normalizedBalances = group.balances || {};
   const normalizedTransactions = group.simplifiedDebts || [];
 
@@ -114,6 +118,7 @@ function Group() {
       members={normalizedMembers}
       expenses={normalizedExpenses}
       settlements={normalizedSettlements}
+      notes={normalizedNotes}
       balances={normalizedBalances}
       transactions={normalizedTransactions}
       actor={actor}
