@@ -25,6 +25,14 @@ function NotesSheet({ open, onClose, notes = [], members = [], actor, adapter, o
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Auto-grow textareas so editing never feels cramped — always show all content
+  const autoGrow = (e) => {
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.max(96, e.target.scrollHeight) + 'px';
+  };
+  // Size to existing content on mount (edit mode opens with a full note)
+  const growRef = (el) => { if (el) autoGrow({ target: el }); };
+
   const initialsOf = (name) =>
     (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
 
@@ -80,8 +88,9 @@ function NotesSheet({ open, onClose, notes = [], members = [], actor, adapter, o
           <div className="ns-edit-form">
             <input className="form-input" placeholder="Title (optional)" value={editTitle}
               onChange={e => setEditTitle(e.target.value)} maxLength={100} />
-            <textarea className="form-input" placeholder="Note..." value={editBody}
-              onChange={e => setEditBody(e.target.value)} rows={4} maxLength={4000} autoFocus />
+            <textarea className="form-input ns-body-input" placeholder="Note..." value={editBody}
+              onChange={e => { setEditBody(e.target.value); autoGrow(e); }}
+              ref={growRef} maxLength={4000} autoFocus />
             <div className="ns-edit-actions">
               <button className="btn btn-ghost btn-xs" onClick={() => setEditingId(null)}>Cancel</button>
               <button className="btn btn-primary btn-xs" disabled={saving} onClick={() => saveEdit(n.id)}>Save</button>
@@ -128,8 +137,9 @@ function NotesSheet({ open, onClose, notes = [], members = [], actor, adapter, o
             <div className="ns-add-form">
               <input className="form-input" placeholder="Title (optional) — e.g. Airbnb, Schedule"
                 value={formTitle} onChange={e => setFormTitle(e.target.value)} maxLength={100} />
-              <textarea className="form-input" placeholder="Note — address, confirmation code, plan..."
-                value={formBody} onChange={e => setFormBody(e.target.value)} rows={4} maxLength={4000} autoFocus />
+              <textarea className="form-input ns-body-input" placeholder="Note — address, confirmation code, plan..."
+                value={formBody} onChange={e => { setFormBody(e.target.value); autoGrow(e); }}
+                maxLength={4000} autoFocus />
               <label className="ns-pin-toggle">
                 <input type="checkbox" checked={formPinned} onChange={e => setFormPinned(e.target.checked)} />
                 📌 Pin to top of group page

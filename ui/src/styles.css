@@ -1895,8 +1895,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   top: 0;
   right: 0;
   height: 100%;
-  width: 420px;
-  max-width: 100vw;
+  width: min(560px, 100vw);
   background: var(--bg-warm, #fdfdf8);
   box-shadow: var(--shadow-lg);
   z-index: 101;
@@ -1913,21 +1912,30 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   to { opacity: 1; }
 }
 .ns-sheet-head {
-  padding: 20px 20px 14px;
+  padding: 22px 24px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .ns-sheet-title {
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 .ns-sheet-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px 24px;
+  padding: 20px 24px 28px;
+}
+
+/* Roomy text editing — auto-grows, generous minimum */
+.ns-body-input {
+  min-height: 96px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  resize: none;
+  overflow: hidden;
 }
 .ns-add-btn {
   display: block;
@@ -1949,11 +1957,15 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .ns-add-form, .ns-edit-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.ns-add-form .form-input {
+  font-size: 0.9rem;
+  padding: 10px 12px;
 }
 .ns-edit-form {
-  padding: 12px;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface, #fff);
@@ -1984,9 +1996,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .ns-note {
   background: var(--surface, #fff);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 13px 14px;
-  margin-bottom: 10px;
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 12px;
 }
 .ns-note.pinned {
   background: #fffdf5;
@@ -2012,7 +2024,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   flex-shrink: 0;
 }
 .ns-note-title {
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   font-weight: 700;
   flex: 1;
   min-width: 0;
@@ -2022,8 +2034,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 .ns-pin-flag { flex-shrink: 0; }
 .ns-note-body {
-  font-size: 0.82rem;
-  line-height: 1.5;
+  font-size: 0.9rem;
+  line-height: 1.6;
   color: var(--text-dim);
   white-space: pre-wrap;
   word-break: break-word;
