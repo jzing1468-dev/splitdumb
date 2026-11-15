@@ -1855,16 +1855,27 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 /* Notes strip: pill + pinned preview, its own row under the header */
+/* (a real <button> so it is keyboard reachable; aria-label 'Trip notes') */
 .notes-strip {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 12px;
   font-size: 0.8rem;
+  font-family: var(--font);
   color: var(--text-dim);
   cursor: pointer;
   padding: 2px 0;
   min-width: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  width: fit-content;
+}
+.notes-strip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }
 .notes-strip:hover .notes-pill { background: rgba(236, 126, 0, 0.16); }
 .notes-preview-hint { color: var(--text-muted); }
@@ -2055,4 +2066,462 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 @media (max-width: 639px) {
   .ns-sheet { width: 100vw; }
   .notes-preview-txt { flex: 1; }
+  .ns-index-top { flex-wrap: wrap; }
+  .ns-search { flex: 1 1 100%; order: -1; }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Notes workspace (Release 0N, Proposal D): index / reader / editor.
+   Reuses the ns-* prefix, Warm Ledger tokens and existing sheet chrome.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Visible keyboard focus for everything inside the notes sheet */
+.ns-sheet:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.ns-sheet button:focus-visible,
+.ns-sheet input:focus-visible,
+.ns-sheet textarea:focus-visible,
+.ns-sheet a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Index: persistent search + sort + new-note controls */
+.ns-index-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.ns-search {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  padding: 8px 12px;
+}
+.ns-sort-toggle {
+  white-space: nowrap;
+}
+
+/* Index rows: compact buttons, title + one-line preview + meta */
+.ns-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.ns-row:hover {
+  border-color: rgba(236, 126, 0, 0.35);
+  background: #fffdf5;
+}
+.ns-row.pinned {
+  background: #fffdf5;
+  border-color: rgba(236, 126, 0, 0.2);
+}
+.ns-row-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-row-preview {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-row-meta {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* Reader: one focused note */
+.ns-back {
+  align-self: flex-start;
+  margin-bottom: 12px;
+}
+.ns-reader {
+  display: flex;
+  flex-direction: column;
+}
+.ns-reader-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  line-height: 1.25;
+}
+.ns-reader-meta {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.ns-reader-body {
+  margin-top: 14px;
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ns-reader-body a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Actions stay reachable while long bodies scroll */
+.ns-reader-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 12px 0 2px;
+  background: var(--bg-warm, #fdfdf8);
+  border-top: 1px solid var(--border);
+}
+.ns-flex { flex: 1; }
+
+/* Editor: one surface for new + existing notes */
+.ns-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ns-field-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.ns-count {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ns-editor .form-input {
+  font-size: 0.9rem;
+  padding: 10px 12px;
+}
+/* Sticky save bar: Save/Cancel never scroll off the bottom of a long note */
+.ns-sticky-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 0 2px;
+  background: var(--bg-warm, #fdfdf8);
+  border-top: 1px solid var(--border);
+}
+.ns-sticky-status {
+  flex: 1;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* Revision-conflict notice (409): keep the draft, choose an outcome */
+.ns-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(236, 126, 0, 0.35);
+  border-radius: var(--radius-sm);
+  background: var(--amber-dim, rgba(236, 126, 0, 0.08));
+  color: var(--amber, #ec7e00);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.ns-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Group info sheet (Releases 1–3): Stay · Arrivals · Lists sections.
+   Reuses ns-* prefixes and Warm Ledger tokens.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Sheets stay in the DOM while closed (drafts survive); hide them properly —
+   the .ns-sheet flex rule would otherwise override the hidden attribute. */
+.ns-sheet[hidden] { display: none; }
+/* Sections get a little more room than the notes drawer */
+.ns-sheet-wide { width: min(640px, 100vw); }
+
+/* Section nav pills */
+.ns-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ns-nav-pill {
+  border: 1px solid var(--border);
+  background: var(--surface, #fff);
+  color: var(--text-dim);
+  border-radius: var(--radius-full);
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+}
+.ns-nav-pill:hover { border-color: rgba(236, 126, 0, 0.35); }
+.ns-nav-pill.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* Loading skeleton block */
+.ns-skeleton-block { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; }
+
+/* ── Stay ── */
+.ns-stay-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.ns-stay-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ns-stay-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0;
+}
+.ns-stay-tz {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.ns-stay-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.ns-stay-row:first-of-type { border-top: none; }
+.ns-stay-label {
+  flex: 0 0 84px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.ns-stay-value { color: var(--text); word-break: break-word; }
+.ns-stay-link { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.ns-stay-row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.ns-stay-times { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 2px; }
+.ns-stay-time { display: flex; flex-direction: column; gap: 2px; }
+.ns-stay-block { padding: 8px 0 2px; border-top: 1px solid var(--border); }
+.ns-stay-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: #fffdf5;
+  border: 1px solid rgba(236, 126, 0, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+.ns-stay-meta {
+  margin-top: 10px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.ns-stay-form { display: flex; flex-direction: column; gap: 4px; }
+.ns-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 479px) { .ns-form-grid { grid-template-columns: 1fr; } }
+.ns-conflict-wrap { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Arrivals / travel plans ── */
+.ns-travel { display: flex; flex-direction: column; }
+.ns-travel-editing-label { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px; }
+.ns-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface, #fff);
+}
+.ns-travel-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.ns-travel-row .member-dot { margin-top: 5px; flex-shrink: 0; }
+.ns-travel-main { flex: 1; min-width: 0; }
+.ns-travel-name { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+.ns-travel-line { font-size: 0.82rem; color: var(--text-dim); margin-top: 3px; }
+.ns-travel-k { font-weight: 700; color: var(--text-muted); margin-right: 4px; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.ns-travel-dim { color: var(--text-muted); }
+.ns-travel-pickup { font-size: 0.8rem; font-weight: 600; color: var(--amber, #ec7e00); margin-top: 4px; }
+.ns-travel-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 0.68rem; color: var(--text-muted); }
+.ns-form-danger { display: flex; justify-content: flex-start; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* Status badges */
+.ns-status {
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--surface, #fff);
+}
+.ns-status-planned { color: var(--text-muted); }
+.ns-status-moving { color: var(--amber, #ec7e00); border-color: rgba(236, 126, 0, 0.4); background: var(--amber-dim, rgba(236, 126, 0, 0.08)); }
+.ns-status-arrived { color: #2e7d32; border-color: rgba(46, 125, 50, 0.35); background: rgba(46, 125, 50, 0.08); }
+
+/* ── Lists ── */
+.ns-lists { display: flex; flex-direction: column; }
+.ns-list-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.ns-list-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ns-list-title { font-size: 0.92rem; font-weight: 800; color: var(--text); }
+.ns-kind {
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: #fafaf4;
+}
+.ns-kind-bring { color: #6d4c0d; border-color: rgba(180, 130, 30, 0.35); background: rgba(230, 200, 120, 0.12); }
+.ns-kind-buy { color: #1d5d8a; border-color: rgba(40, 110, 170, 0.3); background: rgba(90, 160, 220, 0.1); }
+.ns-kind-checkout { color: #6a4d8a; border-color: rgba(130, 90, 190, 0.3); background: rgba(160, 120, 220, 0.1); }
+.ns-list-empty { font-size: 0.78rem; color: var(--text-muted); padding: 4px 0 8px; }
+.ns-list-edit { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.ns-list-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.ns-list-new { border-style: dashed; }
+
+/* Item rows: touch-friendly checkbox + text + assignee + delete */
+.ns-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.ns-item:first-of-type { border-top: none; }
+.ns-item input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.ns-item-text { flex: 1 1 120px; min-width: 0; color: var(--text); word-break: break-word; cursor: pointer; }
+.ns-item.done .ns-item-text { text-decoration: line-through; color: var(--text-muted); }
+.ns-item-assignee {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 90px;
+  max-width: 140px;
+  font-size: 0.78rem;
+  padding: 4px 8px;
+}
+.ns-item-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.ns-item-add .form-input { flex: 1; font-size: 0.85rem; padding: 8px 12px; }
+.ns-lists-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 4px 0 0;
+}
+
+/* Labels with checkboxes (Needs pickup) */
+.ns-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-top: 6px;
+  cursor: pointer;
+}
+.ns-check input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* Mobile: info sheet full width */
+@media (max-width: 639px) {
+  .ns-sheet-wide { width: 100vw; }
+  .ns-stay-label { flex-basis: 100%; }
+  .ns-stay-row-actions { margin-left: 0; }
 }

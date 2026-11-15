@@ -79,12 +79,14 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    author_member_id TEXT NOT NULL REFERENCES members(id),
+    author_member_id TEXT REFERENCES members(id),
+    author_name TEXT,
     title TEXT,
     body TEXT NOT NULL,
     pinned INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT
+    updated_at TEXT,
+    revision INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS idx_notes_group ON notes(group_id);
 
@@ -100,29 +102,49 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_attachments_expense ON attachments(expense_id);
 `;
 
+// Durable snapshot: write to a temp file, fsync, then atomically rename over
+// DB_PATH. On any failure dirty stays true and the error propagates so
+// callers can surface a 500 instead of acknowledging a lost write.
 function saveDb() {
+  if (!db) return;
+  const buffer = Buffer.from(db.export());
+  const tmpPath = DB_PATH + '.tmp';
+  let fd = null;
   try {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(DB_PATH, buffer);
+    fd = fs.openSync(tmpPath, 'w');
+    fs.writeSync(fd, buffer);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmpPath, DB_PATH);
+    dirty = false;
   } catch (err) {
-    console.error('Failed to save DB:', err.message);
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* fd already closed or unusable */ }
+    }
+    try { fs.unlinkSync(tmpPath); } catch { /* temp file may not exist */ }
+    dirty = true;
+    throw err;
   }
 }
 
-// Auto-save every 5 seconds if dirty
+// Auto-save every 5 seconds if dirty; dirty clears only on a successful save.
 let dirty = false;
 function markDirty() { dirty = true; }
 
 setInterval(() => {
   if (dirty && db) {
-    saveDb();
-    dirty = false;
+    try {
+      saveDb();
+    } catch (err) {
+      console.error('Autosave failed:', err.message);
+    }
   }
-}, 5000);
+}, 5000).unref();
 
 // Wrap db operations to auto-mark dirty
 function wrapStmt(stmt) {
+  let freed = false;
   return {
     run(...args) {
       stmt.bind(args);
@@ -150,7 +172,15 @@ function wrapStmt(stmt) {
       }
       stmt.reset();
       return rows;
-    }
+    },
+    // Release the underlying sql.js statement; call once done with a
+    // one-shot statement so it does not leak.
+    free() {
+      if (!freed) {
+        freed = true;
+        stmt.free();
+      }
+    },
   };
 }
 
@@ -166,16 +196,23 @@ function exec(sql) {
 
 async function init() {
   const SQL = await initSqlJs();
-  
-  // Try loading existing DB
+
+  // Try loading existing DB. Only a missing file (ENOENT) creates a fresh
+  // database; any other read error (unreadable file, directory, permissions)
+  // must propagate — never silently replace an existing unreadable DB.
   let buffer = null;
   try {
     buffer = fs.readFileSync(DB_PATH);
   } catch (e) {
+    if (e.code !== 'ENOENT') {
+      throw new Error(`Failed to read existing database at ${DB_PATH}: ${e.message}`);
+    }
     // No existing DB, will create new
   }
 
   if (buffer) {
+    // May throw or produce errors on first statement if the file is not a
+    // valid SQLite database — that propagates rather than replacing the file.
     db = new SQL.Database(buffer);
   } else {
     db = new SQL.Database();
@@ -233,9 +270,113 @@ async function init() {
     db.run("UPDATE expenses SET items_data = NULL WHERE items_data IS NOT NULL");
   } catch (e) { /* Table may not have column yet */ }
 
+  // Migration: notes author survival + revision. The old schema declared
+  // author_member_id NOT NULL, so removing a member either hid their notes
+  // (inner join) or was blocked. Rebuild the table with a nullable
+  // author_member_id, an author_name snapshot (carrying each author's live
+  // name), and a revision counter. Reads fall back: live member name >
+  // notes.author_name snapshot > 'Former member'.
+  {
+    const stmt = db.prepare('PRAGMA table_info(notes)');
+    const cols = new Set();
+    while (stmt.step()) cols.add(stmt.getAsObject().name);
+    stmt.free();
+    if (!cols.has('author_name')) {
+      db.run(`CREATE TABLE notes_new (
+        id TEXT PRIMARY KEY,
+        group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        author_member_id TEXT REFERENCES members(id),
+        author_name TEXT,
+        title TEXT,
+        body TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT,
+        revision INTEGER NOT NULL DEFAULT 1
+      )`);
+      db.run(`INSERT INTO notes_new (id, group_id, author_member_id, author_name, title, body, pinned, created_at, updated_at, revision)
+        SELECT n.id, n.group_id, n.author_member_id, m.name, n.title, n.body, n.pinned, n.created_at, n.updated_at, 1
+        FROM notes n LEFT JOIN members m ON n.author_member_id = m.id`);
+      db.run('DROP TABLE notes');
+      db.run('ALTER TABLE notes_new RENAME TO notes');
+      db.run('CREATE INDEX IF NOT EXISTS idx_notes_group ON notes(group_id)');
+      markDirty();
+    }
+  }
+
+  // Migration: Releases 1-3 group utilities — stay singleton, one travel
+  // plan per member, shared lists and list items. Idempotent CREATE TABLE IF
+  // NOT EXISTS blocks (new installs and old databases both converge).
+  db.run(`
+    CREATE TABLE IF NOT EXISTS stay (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL UNIQUE REFERENCES groups(id) ON DELETE CASCADE,
+      title TEXT,
+      address TEXT,
+      listing_url TEXT,
+      checkin_at TEXT,
+      checkout_at TEXT,
+      timezone TEXT,
+      instructions TEXT,
+      parking TEXT,
+      wifi TEXT,
+      contact_name TEXT,
+      contact_phone TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_stay_group ON stay(group_id);
+
+    CREATE TABLE IF NOT EXISTS travel_plans (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      member_id TEXT NOT NULL REFERENCES members(id),
+      arrival_at TEXT,
+      arrival_place TEXT,
+      arrival_detail TEXT,
+      departure_at TEXT,
+      departure_place TEXT,
+      pickup_requested INTEGER NOT NULL DEFAULT 0,
+      pickup_by TEXT REFERENCES members(id),
+      status TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(group_id, member_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_travel_plans_group ON travel_plans(group_id);
+    CREATE INDEX IF NOT EXISTS idx_travel_plans_member ON travel_plans(member_id);
+
+    CREATE TABLE IF NOT EXISTS lists (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      kind TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_lists_group ON lists(group_id);
+
+    CREATE TABLE IF NOT EXISTS list_items (
+      id TEXT PRIMARY KEY,
+      list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      assignee_id TEXT REFERENCES members(id),
+      done INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_list_items_list ON list_items(list_id);
+    CREATE INDEX IF NOT EXISTS idx_list_items_assignee ON list_items(assignee_id);
+  `);
+
   ready = true;
   console.log('Database ready');
   return db;
 }
 
-module.exports = { init, prepare, exec, saveDb, markDirty, isReady: () => ready };
+module.exports = { init, prepare, exec, saveDb, markDirty, isReady: () => ready, isDirty: () => dirty };

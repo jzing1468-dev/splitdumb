@@ -5,7 +5,7 @@ import AddSettlement from './AddSettlement';
 import IdentityPicker from './IdentityPicker';
 import ProfileEdit from './ProfileEdit';
 import ConfirmDialog from './ConfirmDialog';
-import NotesSheet from './NotesSheet';
+import GroupInfoSheet from './GroupInfoSheet';
 
 /**
  * Shared GroupPage — pure React, receives data and callbacks as props.
@@ -47,6 +47,10 @@ function GroupPage({
   isAdmin,
   auditEntries,
   onRefresh,
+  info,
+  infoLoading,
+  infoError,
+  onRefreshInfo,
   loading = false,
 }) {
   const [tab, setTab] = useState('expenses');
@@ -55,7 +59,7 @@ function GroupPage({
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   const [showAddSettlement, setShowAddSettlement] = useState(false);
-  const [showNotes, setShowNotes] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState(null);
   const [activeFilters, setActiveFilters] = useState({ mine: false, recent30: false });
@@ -301,23 +305,29 @@ function GroupPage({
             return n.title && firstLine ? `${n.title}: ${firstLine}` : (n.title || firstLine);
           })
           .join(' · ');
+        // Populated counts only; zero counts are omitted (plan §7).
+        const counts = info?.counts;
+        const parts = [];
+        if (counts) {
+          if (counts.stay) parts.push('Stay');
+          if (counts.travel_plans) parts.push(`${counts.travel_plans} arrival${counts.travel_plans === 1 ? '' : 's'}`);
+          if (counts.lists) parts.push(`${counts.lists} list${counts.lists === 1 ? '' : 's'}`);
+          if (counts.notes) parts.push(`${counts.notes} note${counts.notes === 1 ? '' : 's'}`);
+        }
+        const summary = counts ? (parts.length > 0 ? parts.join(' · ') : 'Group info') : 'Group info';
         return (
-          <div className="notes-strip" onClick={() => setShowNotes(true)}>
-            <span className="notes-pill">
-              📝 Notes{(notes || []).length > 0 && <span className="notes-pill-count">{notes.length}</span>}
-            </span>
+          <button type="button" className="notes-strip" aria-label="Group info" onClick={() => setShowInfo(true)}>
+            <span className="notes-pill">🧭 Group info</span>
             {pinnedPreview ? (
               <>
                 <span className="notes-preview-pin">📌</span>
                 <span className="notes-preview-txt">{pinnedPreview}</span>
               </>
             ) : (
-              <span className="notes-preview-txt notes-preview-hint">
-                {(notes || []).length === 0 ? 'Airbnb details, schedule, packing list…' : 'No pinned notes'}
-              </span>
+              <span className="notes-preview-txt notes-preview-hint">{summary}</span>
             )}
             <span className="notes-preview-more">→</span>
-          </div>
+          </button>
         );
       })()}
       {extraHeader}
@@ -871,15 +881,22 @@ function GroupPage({
           onSaved={() => { setShowAddSettlement(false); if (onRefresh) onRefresh(); }}
         />
       )}
-      {showNotes && Array.isArray(notes) && adapter.addNote && (
-        <NotesSheet
-          open={showNotes}
-          onClose={() => setShowNotes(false)}
+      {/* GroupInfoSheet stays mounted while hidden so notes view state and
+          unsaved drafts survive closing and reopening the sheet (Proposal D3).
+          Guard matches the old notes strip: hidden in P2P (no notes/adapter.addNote). */}
+      {Array.isArray(notes) && adapter.addNote && (
+        <GroupInfoSheet
+          open={showInfo}
+          onClose={() => setShowInfo(false)}
+          info={info ?? null}
+          loading={Boolean(infoLoading)}
+          error={infoError || ''}
           notes={notes || []}
           members={members || []}
           actor={actor}
           adapter={adapter}
           onRefresh={onRefresh}
+          onRefreshInfo={onRefreshInfo}
         />
       )}
     </div>

@@ -47,18 +47,20 @@ function IdentityPicker({ members, title, onReady, onAddMember, onBack }) {
           <div className="card" style={{ margin: '0 0 10px' }}>
             <div className="card-title">Select member</div>
             {members.map(m => (
-              <div key={m.id} onClick={() => selectMember(m)}
+              <button key={m.id} type="button" onClick={() => selectMember(m)}
+                aria-label={`Continue as ${m.name}`}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '12px 0', cursor: 'pointer', borderRadius: 'var(--radius-xs)',
-                  transition: 'background var(--transition)',
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '12px 4px', cursor: 'pointer', borderRadius: 'var(--radius-xs)',
+                  transition: 'background var(--transition)', textAlign: 'left',
+                  background: 'transparent', border: 'none', color: 'inherit', font: 'inherit',
                 }}
                 onMouseOver={e => e.currentTarget.style.background = 'var(--surface2)'}
                 onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                 <span className="member-dot" style={{ background: m.color }} />
                 <span style={{ flex: 1, fontWeight: 600 }}>{m.name}</span>
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>→</span>
-              </div>
+              </button>
             ))}
           </div>
         )}

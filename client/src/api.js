@@ -49,8 +49,24 @@ async function request(url, options = {}) {
     credentials: 'include',
     ...rest,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  // Body may not be JSON (proxy 502 HTML page, empty body) — never throw
+  // SyntaxError instead of the real HTTP status.
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // Non-JSON body: keep null and fall through to the status check.
+  }
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `HTTP ${res.status}`);
+    err.status = res.status;
+    // Full parsed error body so 409 handlers can read err.body.stay /
+    // err.body.plan / err.body.item / err.body.list (and .note below).
+    if (data) err.body = data;
+    // 409 revision conflicts carry the current server note
+    if (data && data.note) err.note = data.note;
+    throw err;
+  }
   return data;
 }
 
@@ -87,6 +103,20 @@ export const api = {
   addNote: (code, data) => memberRequest(code, `/groups/${code}/notes`, { method: 'POST', body: JSON.stringify(data) }),
   editNote: (code, id, data) => memberRequest(code, `/groups/${code}/notes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteNote: (code, id) => memberRequest(code, `/groups/${code}/notes/${id}`, { method: 'DELETE' }),
+
+  // Group info (stay / travel plans / shared lists). See the shared API contract:
+  // datetimes are LOCAL wall-clock 'YYYY-MM-DDTHH:mm' or date-only strings.
+  getGroupInfo: (code) => request(`/groups/${code}/info`),
+  saveStay: (code, data) => memberRequest(code, `/groups/${code}/stay`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStay: (code) => memberRequest(code, `/groups/${code}/stay`, { method: 'DELETE' }),
+  saveTravelPlan: (code, memberId, data) => memberRequest(code, `/groups/${code}/travel-plans/${memberId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteTravelPlan: (code, memberId) => memberRequest(code, `/groups/${code}/travel-plans/${memberId}`, { method: 'DELETE' }),
+  addList: (code, data) => memberRequest(code, `/groups/${code}/lists`, { method: 'POST', body: JSON.stringify(data) }),
+  updateList: (code, id, data) => memberRequest(code, `/groups/${code}/lists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteList: (code, id) => memberRequest(code, `/groups/${code}/lists/${id}`, { method: 'DELETE' }),
+  addItem: (code, listId, data) => memberRequest(code, `/groups/${code}/lists/${listId}/items`, { method: 'POST', body: JSON.stringify(data) }),
+  updateItem: (code, itemId, data) => memberRequest(code, `/groups/${code}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteItem: (code, itemId) => memberRequest(code, `/groups/${code}/items/${itemId}`, { method: 'DELETE' }),
 
   adminGroups: () => request('/admin/groups'),
 

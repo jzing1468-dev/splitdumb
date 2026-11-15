@@ -4,17 +4,22 @@ const { v4: uuidv4 } = require('uuid');
 const { COOKIE_NAME, AUTH_SERVICE, requireAdmin, requireAuth, parseCookies, verifySession } = require('./auth');
 const { init: initDb, prepare, exec: execDb, saveDb, markDirty } = require('./db');
 const { calculateSplits, buildNightsData, CATEGORIES } = require('./splitCalc');
-const { calculateSimplifiedDebts, nameToColor, nextColorForGroup } = require('@splitdumb/core');
+const { calculateSimplifiedDebts, nameToColor, nextColorForGroup, validateNote, validateNotePatch,
+  validateStay, validateTravelPlan, validateList, validateListPatch, validateListItem, validateListItemPatch,
+  LIST_KINDS, TRAVEL_STATUSES } = require('@splitdumb/core');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
 // Multer config for receipt uploads
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  // Created lazily so importing the app (e.g. in tests) never touches the disk.
+  destination: (req, file, cb) => {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    cb(null, UPLOAD_DIR);
+  },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, `${req.params.id}-${Date.now()}${ext}`);
@@ -35,6 +40,25 @@ const upload = multer({
   },
 });
 
+// ---- One-shot statement helpers ----
+// prepare() allocates a new sql.js statement per call; free it when done so
+// repeated requests do not grow memory without bound.
+
+function runOnce(sql, ...args) {
+  const stmt = prepare(sql);
+  try { return stmt.run(...args); } finally { stmt.free(); }
+}
+
+function getOnce(sql, ...args) {
+  const stmt = prepare(sql);
+  try { return stmt.get(...args); } finally { stmt.free(); }
+}
+
+function allOnce(sql, ...args) {
+  const stmt = prepare(sql);
+  try { return stmt.all(...args); } finally { stmt.free(); }
+}
+
 // ---- Actor & Audit ----
 
 // Resolve X-Member-Id → req.actor
@@ -46,14 +70,18 @@ function resolveActor(req, res, next) {
   next();
 }
 
+function getGroupByCode(code) {
+  return getOnce('SELECT * FROM groups WHERE code = ?', code);
+}
+
 function auditLog(req, action, entityType, entityId = null, changes = null) {
   // Lookup actor name from member_id
   let actorName = null;
   if (req.actorId) {
     try {
-      const group = prepare('SELECT id FROM groups WHERE code = ?').get(req.params?.code);
+      const group = getOnce('SELECT id FROM groups WHERE code = ?', req.params?.code);
       if (group) {
-        const m = prepare('SELECT name FROM members WHERE id = ? AND group_id = ?').get(req.actorId, group.id);
+        const m = getOnce('SELECT name FROM members WHERE id = ? AND group_id = ?', req.actorId, group.id);
         if (m) actorName = m.name;
       }
     } catch {}
@@ -68,12 +96,12 @@ function auditLog(req, action, entityType, entityId = null, changes = null) {
     changes: changes ? JSON.stringify(changes) : null,
   };
   if (req.params?.code) {
-    const g = prepare('SELECT id FROM groups WHERE code = ?').get(req.params.code);
+    const g = getOnce('SELECT id FROM groups WHERE code = ?', req.params.code);
     if (g) entry.group_id = g.id;
   }
   try {
-    prepare('INSERT INTO audit_log (group_id, member_id, member_name, action, entity_type, entity_id, changes) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(entry.group_id, entry.member_id, entry.member_name, entry.action, entry.entity_type, entry.entity_id, entry.changes);
+    runOnce('INSERT INTO audit_log (group_id, member_id, member_name, action, entity_type, entity_id, changes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      entry.group_id, entry.member_id, entry.member_name, entry.action, entry.entity_type, entry.entity_id, entry.changes);
   } catch (e) {
     console.error('audit_log insert failed:', e.message);
   }
@@ -170,12 +198,16 @@ app.get('/api/v1/admin/groups', requireAdmin, (req, res) => {
 // ==================== AUDIT ROUTES ====================
 
 app.get('/api/v1/groups/:code/audit', (req, res) => {
-  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const log = prepare(
-    'SELECT * FROM audit_log WHERE group_id = ? ORDER BY created_at DESC LIMIT ?'
-  ).all(group.id, limit);
+  // Clamp limit to 1..200; invalid or missing falls back to 50.
+  let limit = parseInt(req.query.limit, 10);
+  if (!Number.isFinite(limit)) limit = 50;
+  limit = Math.max(1, Math.min(200, limit));
+  const log = allOnce(
+    'SELECT * FROM audit_log WHERE group_id = ? ORDER BY created_at DESC LIMIT ?',
+    group.id, limit
+  );
   const parsed = log.map(entry => {
     try {
       return { ...entry, changes: entry.changes ? JSON.parse(entry.changes) : null };
@@ -248,9 +280,15 @@ app.get('/api/v1/groups/:code', (req, res) => {
     'SELECT s.*, m1.name as from_name, m2.name as to_name FROM settlements s JOIN members m1 ON s.from_id = m1.id JOIN members m2 ON s.to_id = m2.id WHERE s.group_id = ? ORDER BY s.created_at DESC'
   ).all(group.id);
 
-  const notes = prepare(
-    'SELECT n.*, m.name as author_name FROM notes n JOIN members m ON n.author_member_id = m.id WHERE n.group_id = ? ORDER BY n.pinned DESC, n.created_at DESC'
-  ).all(group.id);
+  // Notes via LEFT JOIN so notes whose author is gone still appear; author
+  // name falls back live member > notes.author_name snapshot > 'Former member'.
+  let notes;
+  {
+    const stmt = prepare(
+      'SELECT n.*, m.name as live_name FROM notes n LEFT JOIN members m ON n.author_member_id = m.id WHERE n.group_id = ? ORDER BY n.pinned DESC, n.created_at DESC'
+    );
+    try { notes = stmt.all(group.id).map(noteJson); } finally { stmt.free(); }
+  }
 
   const debtInfo = calculateSimplifiedDebtsFromDb(group.id);
 
@@ -412,9 +450,9 @@ app.patch('/api/v1/groups/:code/members/:id', (req, res) => {
 });
 
 app.delete('/api/v1/groups/:code/members/:id', requireAdmin, (req, res) => {
-  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const member = prepare('SELECT * FROM members WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  const member = getOnce('SELECT * FROM members WHERE id = ? AND group_id = ?', req.params.id, group.id);
   if (!member) return res.status(404).json({ error: 'Member not found' });
 
   const force = req.query.force === 'true';
@@ -429,19 +467,30 @@ app.delete('/api/v1/groups/:code/members/:id', requireAdmin, (req, res) => {
   }
 
   try {
+    // Snapshot the departing member's name onto their notes, then detach
+    // authorship so the notes survive the removal (author_member_id is
+    // nullable since the notes migration).
+    runOnce(
+      'UPDATE notes SET author_name = ?, author_member_id = NULL WHERE author_member_id = ? AND group_id = ?',
+      member.name, req.params.id, group.id
+    );
     // Remove member's splits
-    prepare('DELETE FROM splits WHERE member_id = ?').run(req.params.id);
+    runOnce('DELETE FROM splits WHERE member_id = ?', req.params.id);
     // Remove expenses where this member was the payer
-    const solePayerExpenses = prepare('SELECT id FROM expenses WHERE payer_id = ? AND group_id = ?').all(req.params.id, group.id);
+    const solePayerExpenses = allOnce('SELECT id FROM expenses WHERE payer_id = ? AND group_id = ?', req.params.id, group.id);
     solePayerExpenses.forEach(e => {
-      prepare('DELETE FROM splits WHERE expense_id = ?').run(e.id);
-      prepare('DELETE FROM expenses WHERE id = ?').run(e.id);
+      runOnce('DELETE FROM splits WHERE expense_id = ?', e.id);
+      runOnce('DELETE FROM expenses WHERE id = ?', e.id);
     });
     // Remove settlements involving this member
-    prepare("DELETE FROM settlements WHERE (from_id = ? OR to_id = ?) AND group_id = ?")
-      .run(req.params.id, req.params.id, group.id);
+    runOnce("DELETE FROM settlements WHERE (from_id = ? OR to_id = ?) AND group_id = ?",
+      req.params.id, req.params.id, group.id);
+    // Group utilities: the member's travel plans go with them; their list
+    // item assignments detach (items stay readable, assignee_name nulls).
+    runOnce('DELETE FROM travel_plans WHERE member_id = ?', req.params.id);
+    runOnce('UPDATE list_items SET assignee_id = NULL WHERE assignee_id = ?', req.params.id);
     // Remove the member
-    prepare('DELETE FROM members WHERE id = ? AND group_id = ?').run(req.params.id, group.id);
+    runOnce('DELETE FROM members WHERE id = ? AND group_id = ?', req.params.id, group.id);
     saveDb();
     auditLog(req, 'delete', 'member', req.params.id, { name: member.name, balance: Math.round(balance * 100) / 100, force });
     res.json({ success: true });
@@ -862,29 +911,65 @@ app.patch('/api/v1/groups/:code/settlements/:id', (req, res) => {
 
 // ==================== NOTES ROUTES ====================
 
+// Normalize SQLite datetime('now') strings ('YYYY-MM-DD HH:MM:SS', UTC) into
+// ISO 8601 UTC with 'T' and 'Z' (contract format, set from JS for new writes).
+function normalizeDbTime(value) {
+  if (typeof value !== 'string') return value ?? null;
+  const m = value.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/);
+  if (m) return `${m[1]}T${m[2]}.000Z`;
+  return value;
+}
+
+// Note JSON contract: { id, title, body, pinned, author_member_id, author_name,
+// created_at, updated_at, revision }. author_name prefers the live member
+// name, then the notes.author_name snapshot, then 'Former member'.
+function noteJson(row) {
+  return {
+    id: row.id,
+    title: row.title ?? null,
+    body: row.body,
+    pinned: !!row.pinned,
+    author_member_id: row.author_member_id ?? null,
+    author_name: row.live_name || row.author_name || 'Former member',
+    created_at: normalizeDbTime(row.created_at),
+    updated_at: normalizeDbTime(row.updated_at),
+    revision: row.revision ?? 1,
+  };
+}
+
+const NOTE_SELECT = 'SELECT n.*, m.name as live_name FROM notes n LEFT JOIN members m ON n.author_member_id = m.id';
+
+function getNoteJson(noteId) {
+  const row = getOnce(`${NOTE_SELECT} WHERE n.id = ?`, noteId);
+  return row ? noteJson(row) : null;
+}
+
+function asObject(body) {
+  return body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+}
+
 app.post('/api/v1/groups/:code/notes', (req, res) => {
-  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const { title, body, pinned } = req.body;
-  if (!body || body.trim().length === 0 || body.length > 4000) {
-    return res.status(400).json({ error: 'Note body must be 1-4000 characters' });
-  }
-  const t = (title || '').trim();
-  if (t.length > 100) return res.status(400).json({ error: 'Note title must be at most 100 characters' });
+  const payload = asObject(req.body);
+  const validationError = validateNote(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
   if (!req.actorId) return res.status(400).json({ error: 'X-Member-Id header required' });
-  const author = prepare('SELECT id, name FROM members WHERE id = ? AND group_id = ?').get(req.actorId, group.id);
+  const author = getOnce('SELECT id, name FROM members WHERE id = ? AND group_id = ?', req.actorId, group.id);
   if (!author) return res.status(400).json({ error: 'Author must be a member of this group' });
 
   const id = uuidv4();
+  const now = new Date().toISOString();
+  const title = payload.title !== undefined ? (payload.title.trim() || null) : null;
+  const body = payload.body.trim();
   try {
-    prepare('INSERT INTO notes (id, group_id, author_member_id, title, body, pinned) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, group.id, author.id, t || null, body.trim(), pinned ? 1 : 0);
+    runOnce(
+      'INSERT INTO notes (id, group_id, author_member_id, title, body, pinned, created_at, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, group.id, author.id, title, body, payload.pinned ? 1 : 0, now, now, 1
+    );
     saveDb();
-    auditLog(req, 'create', 'note', id, { title: t || body.trim().slice(0, 50) });
-    const note = prepare(
-      'SELECT n.*, m.name as author_name FROM notes n JOIN members m ON n.author_member_id = m.id WHERE n.id = ?'
-    ).get(id);
-    res.status(201).json(note);
+    auditLog(req, 'create', 'note', id, { title: title || body.slice(0, 50) });
+    res.status(201).json(getNoteJson(id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create note' });
@@ -892,42 +977,53 @@ app.post('/api/v1/groups/:code/notes', (req, res) => {
 });
 
 app.patch('/api/v1/groups/:code/notes/:id', (req, res) => {
-  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const note = prepare('SELECT * FROM notes WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  const payload = asObject(req.body);
+  const validationError = validateNotePatch(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  const note = getOnce('SELECT * FROM notes WHERE id = ? AND group_id = ?', req.params.id, group.id);
   if (!note) return res.status(404).json({ error: 'Note not found' });
 
-  const { title, body, pinned } = req.body;
-  const changes = {};
-  let newTitle = note.title;
-  let newBody = note.body;
-  let newPinned = note.pinned;
+  // Optimistic concurrency: a matching integer expected_revision is required
+  // to apply the edit; a stale one returns the current note for a 409.
+  if (payload.expected_revision !== undefined && payload.expected_revision !== note.revision) {
+    return res.status(409).json({ error: 'Note was edited by someone else', note: getNoteJson(req.params.id) });
+  }
 
-  if (title !== undefined) {
-    const t = (title || '').trim();
-    if (t.length > 100) return res.status(400).json({ error: 'Note title must be at most 100 characters' });
-    newTitle = t || null;
-    changes.title = t;
+  const hasContent = ['title', 'body', 'pinned'].some(k => payload[k] !== undefined);
+  const sets = [];
+  const values = [];
+  if (payload.title !== undefined) {
+    sets.push('title = ?');
+    values.push(payload.title.trim() || null);
   }
-  if (body !== undefined) {
-    if (!body.trim() || body.length > 4000) return res.status(400).json({ error: 'Note body must be 1-4000 characters' });
-    newBody = body.trim();
-    changes.body = body.trim().slice(0, 50);
+  if (payload.body !== undefined) {
+    sets.push('body = ?');
+    values.push(payload.body.trim());
   }
-  if (pinned !== undefined) {
-    newPinned = pinned ? 1 : 0;
-    changes.pinned = !!newPinned;
+  if (payload.pinned !== undefined) {
+    sets.push('pinned = ?');
+    values.push(payload.pinned ? 1 : 0);
+  }
+  if (hasContent) {
+    sets.push('revision = revision + 1');
+    sets.push('updated_at = ?');
+    values.push(new Date().toISOString());
   }
 
   try {
-    prepare('UPDATE notes SET title = ?, body = ?, pinned = ?, updated_at = datetime(\'now\') WHERE id = ?')
-      .run(newTitle, newBody, newPinned, req.params.id);
-    saveDb();
-    auditLog(req, 'update', 'note', req.params.id, changes);
-    const updated = prepare(
-      'SELECT n.*, m.name as author_name FROM notes n JOIN members m ON n.author_member_id = m.id WHERE n.id = ?'
-    ).get(req.params.id);
-    res.json(updated);
+    if (sets.length > 0) {
+      runOnce(`UPDATE notes SET ${sets.join(', ')} WHERE id = ?`, ...values, req.params.id);
+      saveDb();
+    }
+    auditLog(req, 'update', 'note', req.params.id, {
+      ...(payload.title !== undefined ? { title: payload.title.trim() } : {}),
+      ...(payload.body !== undefined ? { body: payload.body.trim().slice(0, 50) } : {}),
+      ...(payload.pinned !== undefined ? { pinned: payload.pinned } : {}),
+    });
+    res.json(getNoteJson(req.params.id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update note' });
@@ -935,14 +1031,486 @@ app.patch('/api/v1/groups/:code/notes/:id', (req, res) => {
 });
 
 app.delete('/api/v1/groups/:code/notes/:id', (req, res) => {
-  const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
+  const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  const note = prepare('SELECT * FROM notes WHERE id = ? AND group_id = ?').get(req.params.id, group.id);
+  const note = getOnce('SELECT * FROM notes WHERE id = ? AND group_id = ?', req.params.id, group.id);
   if (!note) return res.status(404).json({ error: 'Note not found' });
 
-  prepare('DELETE FROM notes WHERE id = ?').run(req.params.id);
+  try {
+    runOnce('DELETE FROM notes WHERE id = ?', req.params.id);
+    saveDb();
+    auditLog(req, 'delete', 'note', req.params.id, { title: note.title || note.body.slice(0, 50) });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
+// ==================== GROUP UTILITIES (info / stay / travel plans / lists) ===
+
+// Datetime fields here are LOCAL wall-clock text as typed by users — stored
+// verbatim (trimmed), never converted to UTC. ISO timestamps (created_at /
+// updated_at) are new Date().toISOString().
+
+function stayJson(row) {
+  return {
+    id: row.id,
+    title: row.title ?? null,
+    address: row.address ?? null,
+    listing_url: row.listing_url ?? null,
+    checkin_at: row.checkin_at ?? null,
+    checkout_at: row.checkout_at ?? null,
+    timezone: row.timezone ?? null,
+    instructions: row.instructions ?? null,
+    parking: row.parking ?? null,
+    wifi: row.wifi ?? null,
+    contact_name: row.contact_name ?? null,
+    contact_phone: row.contact_phone ?? null,
+    created_at: normalizeDbTime(row.created_at),
+    updated_at: normalizeDbTime(row.updated_at),
+    revision: row.revision ?? 1,
+  };
+}
+
+function travelPlanJson(row) {
+  const member = row.member_id ? getOnce('SELECT name FROM members WHERE id = ?', row.member_id) : null;
+  const pickup = row.pickup_by ? getOnce('SELECT name FROM members WHERE id = ?', row.pickup_by) : null;
+  return {
+    id: row.id,
+    member_id: row.member_id,
+    member_name: member?.name ?? null,
+    arrival_at: row.arrival_at ?? null,
+    arrival_place: row.arrival_place ?? null,
+    arrival_detail: row.arrival_detail ?? null,
+    departure_at: row.departure_at ?? null,
+    departure_place: row.departure_place ?? null,
+    pickup_requested: !!row.pickup_requested,
+    pickup_by: row.pickup_by ?? null,
+    pickup_by_name: pickup?.name ?? null,
+    status: row.status ?? null,
+    notes: row.notes ?? null,
+    updated_at: normalizeDbTime(row.updated_at),
+    revision: row.revision ?? 1,
+  };
+}
+
+function listJson(row, items) {
+  return {
+    id: row.id,
+    title: row.title,
+    kind: row.kind ?? null,
+    created_at: normalizeDbTime(row.created_at),
+    revision: row.revision ?? 1,
+    ...(items !== undefined ? { items } : {}),
+  };
+}
+
+function listItemJson(row) {
+  const assignee = row.assignee_id ? getOnce('SELECT name FROM members WHERE id = ?', row.assignee_id) : null;
+  return {
+    id: row.id,
+    list_id: row.list_id,
+    text: row.text,
+    assignee_id: row.assignee_id ?? null,
+    assignee_name: assignee?.name ?? null,
+    done: !!row.done,
+    position: row.position,
+    revision: row.revision ?? 1,
+    updated_at: normalizeDbTime(row.updated_at),
+  };
+}
+
+// Normalize a present payload value: trimmed string, empty -> null, non-string
+// (validated null) -> null.
+function normField(v) {
+  return typeof v === 'string' ? (v.trim() || null) : null;
+}
+
+// Every mutation requires X-Member-Id naming a member of THIS group.
+function requireActorMember(req, group) {
+  if (!req.actorId) return { error: 'X-Member-Id header required' };
+  const actor = getOnce('SELECT id FROM members WHERE id = ? AND group_id = ?', req.actorId, group.id);
+  if (!actor) return { error: 'Actor must be a member of this group' };
+  return { actor };
+}
+
+function memberOfGroup(memberId, group) {
+  return getOnce('SELECT id, name FROM members WHERE id = ? AND group_id = ?', memberId, group.id);
+}
+
+// Lightweight group info: stay/travel_plans/lists(+items) plus counts. No
+// financial recomputation (the ledger reads keep their own paths).
+app.get('/api/v1/groups/:code/info', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const stayRow = getOnce('SELECT * FROM stay WHERE group_id = ?', group.id);
+  const stay = stayRow ? stayJson(stayRow) : null;
+
+  const plans = allOnce(
+    'SELECT * FROM travel_plans WHERE group_id = ? ORDER BY created_at ASC', group.id
+  ).map(travelPlanJson);
+
+  const listRows = allOnce('SELECT * FROM lists WHERE group_id = ? ORDER BY created_at ASC', group.id);
+  const lists = listRows.map(l => listJson(l, allOnce(
+    'SELECT * FROM list_items WHERE list_id = ? ORDER BY position ASC, created_at ASC', l.id
+  ).map(listItemJson)));
+
+  const noteCount = getOnce('SELECT COUNT(*) AS c FROM notes WHERE group_id = ?', group.id).c;
+  res.json({
+    stay,
+    travel_plans: plans,
+    lists,
+    counts: {
+      stay: stay ? 1 : 0,
+      travel_plans: plans.length,
+      lists: lists.length,
+      list_items: lists.reduce((n, l) => n + l.items.length, 0),
+      notes: noteCount,
+    },
+  });
+});
+
+const STAY_KEYS = ['title', 'address', 'listing_url', 'checkin_at', 'checkout_at', 'timezone',
+  'instructions', 'parking', 'wifi', 'contact_name', 'contact_phone'];
+
+// Stay singleton per group: PUT upserts. Absent expected_revision =
+// unconditional update; a present integer != current revision -> 409.
+app.put('/api/v1/groups/:code/stay', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const payload = asObject(req.body);
+  const validationError = validateStay(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
+
+  try {
+    const existing = getOnce('SELECT * FROM stay WHERE group_id = ?', group.id);
+    if (existing && payload.expected_revision !== undefined && payload.expected_revision !== existing.revision) {
+      return res.status(409).json({ error: 'Stay was updated by someone else', stay: stayJson(existing) });
+    }
+
+    if (!existing) {
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      runOnce(
+        'INSERT INTO stay (id, group_id, title, address, listing_url, checkin_at, checkout_at, timezone, instructions, parking, wifi, contact_name, contact_phone, created_at, updated_at, revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
+        id, group.id,
+        normField(payload.title), normField(payload.address), normField(payload.listing_url),
+        normField(payload.checkin_at), normField(payload.checkout_at), normField(payload.timezone),
+        normField(payload.instructions), normField(payload.parking), normField(payload.wifi),
+        normField(payload.contact_name), normField(payload.contact_phone),
+        now, now
+      );
+      saveDb();
+      auditLog(req, 'create', 'stay', id, { title: normField(payload.title) });
+      return res.json(stayJson(getOnce('SELECT * FROM stay WHERE id = ?', id)));
+    }
+
+    const sets = [];
+    const values = [];
+    let changed = false;
+    for (const k of STAY_KEYS) {
+      if (payload[k] === undefined) continue;
+      const v = normField(payload[k]);
+      if (v !== (existing[k] ?? null)) changed = true;
+      sets.push(`${k} = ?`);
+      values.push(v);
+    }
+    if (changed) {
+      sets.push('revision = revision + 1', 'updated_at = ?');
+      values.push(new Date().toISOString());
+      runOnce(`UPDATE stay SET ${sets.join(', ')} WHERE id = ?`, ...values, existing.id);
+      saveDb();
+      auditLog(req, 'update', 'stay', existing.id,
+        Object.fromEntries(STAY_KEYS.filter(k => payload[k] !== undefined).map(k => [k, payload[k]])));
+    }
+    res.json(stayJson(getOnce('SELECT * FROM stay WHERE id = ?', existing.id)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save stay' });
+  }
+});
+
+app.delete('/api/v1/groups/:code/stay', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const existing = getOnce('SELECT * FROM stay WHERE group_id = ?', group.id);
+  if (existing) {
+    runOnce('DELETE FROM stay WHERE id = ?', existing.id);
+    saveDb();
+    auditLog(req, 'delete', 'stay', existing.id, { title: existing.title });
+  }
+  res.json({ ok: true });
+});
+
+const TRAVEL_KEYS = ['arrival_at', 'arrival_place', 'arrival_detail', 'departure_at',
+  'departure_place', 'pickup_requested', 'pickup_by', 'status', 'notes'];
+
+// One travel plan per (group, member): PUT upserts for that member.
+app.put('/api/v1/groups/:code/travel-plans/:memberId', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const member = memberOfGroup(req.params.memberId, group);
+  if (!member) return res.status(400).json({ error: 'Member must be in this group' });
+  const payload = asObject(req.body);
+  const validationError = validateTravelPlan(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
+  if (payload.pickup_by != null && !memberOfGroup(payload.pickup_by, group)) {
+    return res.status(400).json({ error: 'pickup_by must be a member of this group' });
+  }
+
+  try {
+    const existing = getOnce('SELECT * FROM travel_plans WHERE group_id = ? AND member_id = ?', group.id, member.id);
+    if (existing && payload.expected_revision !== undefined && payload.expected_revision !== existing.revision) {
+      return res.status(409).json({ error: 'Travel plan was updated by someone else', travel_plan: travelPlanJson(existing) });
+    }
+
+    if (!existing) {
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      runOnce(
+        'INSERT INTO travel_plans (id, group_id, member_id, arrival_at, arrival_place, arrival_detail, departure_at, departure_place, pickup_requested, pickup_by, status, notes, created_at, updated_at, revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
+        id, group.id, member.id,
+        normField(payload.arrival_at), normField(payload.arrival_place), normField(payload.arrival_detail),
+        normField(payload.departure_at), normField(payload.departure_place),
+        payload.pickup_requested ? 1 : 0, payload.pickup_by ?? null,
+        normField(payload.status), normField(payload.notes),
+        now, now
+      );
+      saveDb();
+      auditLog(req, 'create', 'travel_plan', id, { member: member.name });
+      return res.json(travelPlanJson(getOnce('SELECT * FROM travel_plans WHERE id = ?', id)));
+    }
+
+    const sets = [];
+    const values = [];
+    let changed = false;
+    for (const k of TRAVEL_KEYS) {
+      if (payload[k] === undefined) continue;
+      let v;
+      if (k === 'pickup_requested') v = payload.pickup_requested ? 1 : 0;
+      else if (k === 'pickup_by') v = payload.pickup_by ?? null;
+      else v = normField(payload[k]);
+      if (v !== (existing[k] ?? null)) changed = true;
+      sets.push(`${k} = ?`);
+      values.push(v);
+    }
+    if (changed) {
+      sets.push('revision = revision + 1', 'updated_at = ?');
+      values.push(new Date().toISOString());
+      runOnce(`UPDATE travel_plans SET ${sets.join(', ')} WHERE id = ?`, ...values, existing.id);
+      saveDb();
+      auditLog(req, 'update', 'travel_plan', existing.id, { member: member.name });
+    }
+    res.json(travelPlanJson(getOnce('SELECT * FROM travel_plans WHERE id = ?', existing.id)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save travel plan' });
+  }
+});
+
+app.delete('/api/v1/groups/:code/travel-plans/:memberId', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const plan = getOnce('SELECT * FROM travel_plans WHERE group_id = ? AND member_id = ?', group.id, req.params.memberId);
+  if (plan) {
+    runOnce('DELETE FROM travel_plans WHERE id = ?', plan.id);
+    saveDb();
+    auditLog(req, 'delete', 'travel_plan', plan.id, {});
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/v1/groups/:code/lists', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const payload = asObject(req.body);
+  const validationError = validateList(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
+
+  try {
+    const id = uuidv4();
+    runOnce(
+      'INSERT INTO lists (id, group_id, title, kind, created_at, revision) VALUES (?,?,?,?,?,1)',
+      id, group.id, payload.title.trim(), payload.kind ?? null, new Date().toISOString()
+    );
+    saveDb();
+    auditLog(req, 'create', 'list', id, { title: payload.title.trim(), kind: payload.kind ?? null });
+    res.status(201).json(listJson(getOnce('SELECT * FROM lists WHERE id = ?', id)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create list' });
+  }
+});
+
+app.patch('/api/v1/groups/:code/lists/:id', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const list = getOnce('SELECT * FROM lists WHERE id = ? AND group_id = ?', req.params.id, group.id);
+  if (!list) return res.status(404).json({ error: 'List not found' });
+  const payload = asObject(req.body);
+  const validationError = validateListPatch(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
+
+  if (payload.expected_revision !== undefined && payload.expected_revision !== list.revision) {
+    return res.status(409).json({ error: 'List was updated by someone else', list: listJson(list) });
+  }
+
+  try {
+    const sets = [];
+    const values = [];
+    let changed = false;
+    if (payload.title !== undefined) {
+      if (payload.title.trim() !== list.title) changed = true;
+      sets.push('title = ?');
+      values.push(payload.title.trim());
+    }
+    if (payload.kind !== undefined) {
+      if ((payload.kind ?? null) !== (list.kind ?? null)) changed = true;
+      sets.push('kind = ?');
+      values.push(payload.kind ?? null);
+    }
+    if (changed) {
+      sets.push('revision = revision + 1');
+      runOnce(`UPDATE lists SET ${sets.join(', ')} WHERE id = ?`, ...values, list.id);
+      saveDb();
+      auditLog(req, 'update', 'list', list.id, {
+        ...(payload.title !== undefined ? { title: payload.title.trim() } : {}),
+        ...(payload.kind !== undefined ? { kind: payload.kind ?? null } : {}),
+      });
+    }
+    res.json(listJson(getOnce('SELECT * FROM lists WHERE id = ?', list.id)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update list' });
+  }
+});
+
+app.delete('/api/v1/groups/:code/lists/:id', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const list = getOnce('SELECT * FROM lists WHERE id = ? AND group_id = ?', req.params.id, group.id);
+  if (!list) return res.status(404).json({ error: 'List not found' });
+  runOnce('DELETE FROM list_items WHERE list_id = ?', list.id);
+  runOnce('DELETE FROM lists WHERE id = ?', list.id);
   saveDb();
-  auditLog(req, 'delete', 'note', req.params.id, { title: note.title || note.body.slice(0, 50) });
+  auditLog(req, 'delete', 'list', list.id, { title: list.title });
+  res.json({ ok: true });
+});
+
+app.post('/api/v1/groups/:code/lists/:id/items', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const list = getOnce('SELECT * FROM lists WHERE id = ? AND group_id = ?', req.params.id, group.id);
+  if (!list) return res.status(404).json({ error: 'List not found' });
+  const payload = asObject(req.body);
+  const validationError = validateListItem(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
+  if (payload.assignee_id != null && !memberOfGroup(payload.assignee_id, group)) {
+    return res.status(400).json({ error: 'Assignee must be a member of this group' });
+  }
+
+  try {
+    const id = uuidv4();
+    const position = getOnce(
+      'SELECT COALESCE(MAX(position), 0) + 1 AS p FROM list_items WHERE list_id = ?', list.id
+    ).p;
+    const now = new Date().toISOString();
+    runOnce(
+      'INSERT INTO list_items (id, list_id, text, assignee_id, done, position, created_at, updated_at, revision) VALUES (?,?,?,?,0,?,?,?,1)',
+      id, list.id, payload.text.trim(), payload.assignee_id ?? null, position, now, now
+    );
+    saveDb();
+    auditLog(req, 'create', 'list_item', id, { text: payload.text.trim(), list_id: list.id });
+    res.status(201).json(listItemJson(getOnce('SELECT * FROM list_items WHERE id = ?', id)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create list item' });
+  }
+});
+
+// Items are addressed globally by id but always resolved through their list's
+// group, so a foreign item id never leaks across groups.
+app.patch('/api/v1/groups/:code/items/:itemId', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const item = getOnce(
+    'SELECT li.* FROM list_items li JOIN lists l ON li.list_id = l.id WHERE li.id = ? AND l.group_id = ?',
+    req.params.itemId, group.id
+  );
+  if (!item) return res.status(404).json({ error: 'List item not found' });
+  const payload = asObject(req.body);
+  const validationError = validateListItemPatch(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
+  if (payload.assignee_id != null && !memberOfGroup(payload.assignee_id, group)) {
+    return res.status(400).json({ error: 'Assignee must be a member of this group' });
+  }
+
+  if (payload.expected_revision !== undefined && payload.expected_revision !== item.revision) {
+    return res.status(409).json({ error: 'Item was updated by someone else', item: listItemJson(item) });
+  }
+
+  try {
+    const sets = [];
+    const values = [];
+    let changed = false;
+    if (payload.text !== undefined) {
+      if (payload.text.trim() !== item.text) changed = true;
+      sets.push('text = ?');
+      values.push(payload.text.trim());
+    }
+    if (payload.assignee_id !== undefined) {
+      if ((payload.assignee_id ?? null) !== (item.assignee_id ?? null)) changed = true;
+      sets.push('assignee_id = ?');
+      values.push(payload.assignee_id ?? null);
+    }
+    if (payload.done !== undefined) {
+      if ((payload.done ? 1 : 0) !== item.done) changed = true;
+      sets.push('done = ?');
+      values.push(payload.done ? 1 : 0);
+    }
+    if (changed) {
+      sets.push('revision = revision + 1', 'updated_at = ?');
+      values.push(new Date().toISOString());
+      runOnce(`UPDATE list_items SET ${sets.join(', ')} WHERE id = ?`, ...values, item.id);
+      saveDb();
+      auditLog(req, 'update', 'list_item', item.id, {
+        ...(payload.text !== undefined ? { text: payload.text.trim() } : {}),
+        ...(payload.assignee_id !== undefined ? { assignee_id: payload.assignee_id ?? null } : {}),
+        ...(payload.done !== undefined ? { done: payload.done } : {}),
+      });
+    }
+    res.json(listItemJson(getOnce('SELECT * FROM list_items WHERE id = ?', item.id)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update list item' });
+  }
+});
+
+app.delete('/api/v1/groups/:code/items/:itemId', (req, res) => {
+  const group = getGroupByCode(req.params.code);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const item = getOnce(
+    'SELECT li.* FROM list_items li JOIN lists l ON li.list_id = l.id WHERE li.id = ? AND l.group_id = ?',
+    req.params.itemId, group.id
+  );
+  if (!item) return res.status(404).json({ error: 'List item not found' });
+  runOnce('DELETE FROM list_items WHERE id = ?', item.id);
+  saveDb();
+  auditLog(req, 'delete', 'list_item', item.id, { text: item.text });
   res.json({ ok: true });
 });
 
