@@ -112,7 +112,12 @@ function saveDb() {
   let fd = null;
   try {
     fd = fs.openSync(tmpPath, 'w');
-    fs.writeSync(fd, buffer);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
+      if (written === 0) throw new Error('Database snapshot write made no progress');
+      offset += written;
+    }
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = null;

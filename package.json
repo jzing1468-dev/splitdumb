@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test \"server/test/*.test.cjs\" \"core/test/*.test.cjs\""
+    "test": "node --test \"server/test/*.test.cjs\" \"core/test/*.test.cjs\"",
+    "test:ui": "node ui/test/run-browser-regressions.mjs"
   },
   "keywords": [],
   "author": "",

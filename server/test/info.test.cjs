@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'test-auth-secret';
+process.env.AUTH_SECRET = 'test-auth-secret';
 const DB_PATH = path.join(os.tmpdir(), `splitdumb-info-test-${process.pid}-${Date.now()}.db`);
 process.env.DB_PATH = DB_PATH;
 
@@ -189,11 +189,11 @@ test('stay: create -> info -> update (revision bump) -> stale 409 -> delete', as
   assert.equal(forced.status, 200);
   assert.equal(forced.json.revision, 3);
 
-  const del = await req('DELETE', url);
+  const del = await req('DELETE', url, { headers: asMember(m) });
   assert.equal(del.status, 200);
   assert.deepEqual(del.json, { ok: true });
   // delete is idempotent
-  assert.equal((await req('DELETE', url)).status, 200);
+  assert.equal((await req('DELETE', url, { headers: asMember(m) })).status, 200);
   assert.equal((await req('GET', `/api/v1/groups/${groupCode}/info`)).json.stay, null);
 });
 
@@ -231,7 +231,7 @@ test('stay: invalid fields -> 400 (URL protocol, datetime, timezone, caps)', asy
     headers: asMember(m),
   });
   assert.equal(ok.status, 200);
-  await req('DELETE', url);
+  await req('DELETE', url, { headers: asMember(m) });
 });
 
 test('travel plans: upsert per member, foreign member 400, pickup_by cross-group 400, delete', async () => {
@@ -325,11 +325,11 @@ test('travel plans: upsert per member, foreign member 400, pickup_by cross-group
   assert.ok(ids.includes(alice.id) && ids.includes(bob.id));
 
   // Delete
-  const del = await req('DELETE', planUrl(alice.id));
+  const del = await req('DELETE', planUrl(alice.id), { headers: asMember(alice) });
   assert.equal(del.status, 200);
   assert.deepEqual(del.json, { ok: true });
   assert.equal((await req('GET', `/api/v1/groups/${groupCode}/info`)).json.counts.travel_plans, 1);
-  await req('DELETE', planUrl(bob.id));
+  await req('DELETE', planUrl(bob.id), { headers: asMember(bob) });
 });
 
 test('lists: create, patch, stale 409, delete cascades items', async () => {
@@ -381,7 +381,7 @@ test('lists: create, patch, stale 409, delete cascades items', async () => {
   assert.equal(i1.status, 201);
   assert.equal(i2.status, 201);
 
-  const del = await req('DELETE', `${listsUrl}/${l.id}`);
+  const del = await req('DELETE', `${listsUrl}/${l.id}`, { headers: asMember(m) });
   assert.equal(del.status, 200);
   assert.deepEqual(del.json, { ok: true });
   const info = await req('GET', `/api/v1/groups/${groupCode}/info`);
@@ -485,12 +485,12 @@ test('list items: create, assign, toggle done, 409, delete; positions increment'
   assert.equal(info.json.counts.list_items, 2);
 
   // Delete one item
-  const del = await req('DELETE', `/api/v1/groups/${groupCode}/items/${b.id}`);
+  const del = await req('DELETE', `/api/v1/groups/${groupCode}/items/${b.id}`, { headers: asMember(m) });
   assert.equal(del.status, 200);
   assert.deepEqual(del.json, { ok: true });
   assert.equal((await req('GET', `/api/v1/groups/${groupCode}/info`)).json.counts.list_items, 1);
 
-  await req('DELETE', `/api/v1/groups/${groupCode}/lists/${list.id}`);
+  await req('DELETE', `/api/v1/groups/${groupCode}/lists/${list.id}`, { headers: asMember(m) });
 });
 
 test('counts endpoint reflects all mutations together', async () => {
@@ -549,7 +549,7 @@ test('member deletion removes their travel plan and nulls assignee, list survive
   assert.equal(survived.assignee_id, null);
   assert.equal(survived.assignee_name, null);
 
-  await req('DELETE', `/api/v1/groups/${groupCode}/lists/${list.id}`);
+  await req('DELETE', `/api/v1/groups/${groupCode}/lists/${list.id}`, { headers: asMember(keeper) });
 });
 
 test('404s for unknown group across every utility route', async () => {
@@ -588,5 +588,5 @@ test('every mutation route requires X-Member-Id of a group member', async () => 
     const foreign = await req(method, url, { body, headers: { 'x-member-id': 'not-a-member' } });
     assert.equal(foreign.status, 400, `${method} ${url} with foreign member -> 400`);
   }
-  await req('DELETE', `/api/v1/groups/${groupCode}/lists/${list.id}`);
+  await req('DELETE', `/api/v1/groups/${groupCode}/lists/${list.id}`, { headers: asMember(m) });
 });

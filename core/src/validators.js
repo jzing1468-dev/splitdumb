@@ -276,7 +276,7 @@ export function validateListPatch(data) {
 }
 
 function checkItemText(d) {
-  if (d.text === undefined || d.text === null) return null;
+  if (d.text === undefined) return null;
   if (typeof d.text !== 'string' || d.text.trim().length === 0 || d.text.trim().length > 200) {
     return 'List item text must be 1-200 characters';
   }

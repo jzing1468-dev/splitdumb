@@ -12,7 +12,7 @@
  *   - info: { travel_plans, ... }, members, adapter, onInfoPatch, onRefreshInfo, askConfirm
  *     adapter: { saveTravelPlan(memberId, data), deleteTravelPlan(memberId) }
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { fmtWallDateTime, fmtNoteDate } from './dateFormat';
 
 const STATUS_LABELS = { planned: 'Planned', on_the_way: 'On the way', arrived: 'Arrived' };
@@ -57,7 +57,7 @@ function StatusBadge({ status }) {
 function PlanForm({ form, setForm, members, saving, error, conflict, onSave, onLoadLatest, onCancel, onDelete, isExisting }) {
   const set = (k) => (e) => setForm(prev => ({ ...prev, [k]: e.target.value }));
   return (
-    <div className="ns-edit-form">
+    <fieldset className="ns-edit-form" disabled={saving} style={{ minWidth: 0, margin: 0 }}>
       {conflict && (
         <div className="ns-conflict" role="alert">
           This plan was updated by someone else since you started.
@@ -78,13 +78,13 @@ function PlanForm({ form, setForm, members, saving, error, conflict, onSave, onL
         </div>
       </div>
       <label className="ns-field-label" htmlFor="ns-plan-arrival-place">Arrival place</label>
-      <input id="ns-plan-arrival-place" className="form-input" type="text" maxLength={200}
+      <input id="ns-plan-arrival-place" className="form-input" type="text" maxLength={120}
         placeholder="e.g. Airport (JFK), Terminal 4" value={form.arrival_place} onChange={set('arrival_place')} />
       <label className="ns-field-label" htmlFor="ns-plan-arrival-detail">Arrival details</label>
-      <input id="ns-plan-arrival-detail" className="form-input" type="text" maxLength={300}
+      <input id="ns-plan-arrival-detail" className="form-input" type="text" maxLength={200}
         placeholder="Flight number, transport…" value={form.arrival_detail} onChange={set('arrival_detail')} />
       <label className="ns-field-label" htmlFor="ns-plan-departure-place">Departure place</label>
-      <input id="ns-plan-departure-place" className="form-input" type="text" maxLength={200}
+      <input id="ns-plan-departure-place" className="form-input" type="text" maxLength={120}
         placeholder="e.g. Airport (JFK)" value={form.departure_place} onChange={set('departure_place')} />
       <label className="ns-check">
         <input type="checkbox" checked={form.pickup_requested}
@@ -110,7 +110,7 @@ function PlanForm({ form, setForm, members, saving, error, conflict, onSave, onL
         </div>
       </div>
       <label className="ns-field-label" htmlFor="ns-plan-notes">Notes</label>
-      <textarea id="ns-plan-notes" className="form-input ns-body-input" maxLength={2000} rows={2}
+      <textarea id="ns-plan-notes" className="form-input ns-body-input" maxLength={500} rows={2}
         placeholder="Anything else about the trip…" value={form.notes} onChange={set('notes')} />
       <div className="ns-sticky-actions">
         <span className="ns-sticky-status" aria-live="polite">{saving ? 'Saving…' : ''}</span>
@@ -124,7 +124,7 @@ function PlanForm({ form, setForm, members, saving, error, conflict, onSave, onL
           <button type="button" className="btn btn-danger-outline btn-xs" onClick={onDelete}>🗑 Delete plan</button>
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -133,7 +133,9 @@ function TravelPlansView({ info, members = [], adapter, onInfoPatch, onRefreshIn
   const [editingId, setEditingId] = useState(null); // member id being edited
   const [form, setForm] = useState(null);
   const [base, setBase] = useState(null);
+  const [baseRevision, setBaseRevision] = useState(undefined);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(null); // server plan from a 409
 
@@ -145,6 +147,7 @@ function TravelPlansView({ info, members = [], adapter, onInfoPatch, onRefreshIn
     setEditingId(String(memberId));
     setForm(formOfPlan(plan));
     setBase(formOfPlan(plan));
+    setBaseRevision(plan?.revision);
     setError('');
     setConflict(null);
   };
@@ -161,14 +164,14 @@ function TravelPlansView({ info, members = [], adapter, onInfoPatch, onRefreshIn
   };
 
   const save = async () => {
-    if (!adapter?.saveTravelPlan || editingId == null) return;
+    if (!adapter?.saveTravelPlan || editingId == null || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
-      const plan = planByMember(editingId);
       const saved = await adapter.saveTravelPlan(editingId, {
         ...nullifyEmpties(form),
-        expected_revision: plan?.revision ?? null,
+        ...(baseRevision === undefined ? {} : { expected_revision: baseRevision }),
       });
       onInfoPatch(prev => {
         const list = (prev?.travel_plans || []).slice();
@@ -179,12 +182,13 @@ function TravelPlansView({ info, members = [], adapter, onInfoPatch, onRefreshIn
       exitEdit();
       onRefreshInfo?.();
     } catch (err) {
-      if (err?.status === 409 && err.body?.plan) {
-        setConflict(err.body.plan);
+      if (err?.status === 409 && err.body?.travel_plan) {
+        setConflict(err.body.travel_plan);
       } else {
         setError(err?.message || 'Save failed');
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -194,8 +198,10 @@ function TravelPlansView({ info, members = [], adapter, onInfoPatch, onRefreshIn
     const next = formOfPlan(conflict);
     setForm(next);
     setBase(next);
+    setBaseRevision(conflict.revision);
     onInfoPatch(prev => {
-      const list = (prev?.travel_plans || []).map(p => String(p.member_id) === String(conflict.member_id) ? conflict : p);
+      const list = (prev?.travel_plans || []).filter(p => String(p.member_id) !== String(conflict.member_id));
+      list.push(conflict);
       return { ...(prev || {}), travel_plans: list };
     });
     setConflict(null);

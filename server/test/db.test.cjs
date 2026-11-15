@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'test-auth-secret';
+process.env.AUTH_SECRET = 'test-auth-secret';
 const DB_PATH = path.join(os.tmpdir(), `splitdumb-db-test-${process.pid}-${Date.now()}.db`);
 process.env.DB_PATH = DB_PATH;
 
@@ -67,6 +67,53 @@ test('markDirty flags unsaved state; successful saveDb clears it and writes a va
   const buf = fs.readFileSync(DB_PATH);
   assert.equal(buf.slice(0, 15).toString(), 'SQLite format 3');
   assert.ok(!fs.existsSync(DB_PATH + '.tmp'), 'no temp file left behind');
+});
+
+test('saveDb retries short writes until the complete snapshot is durable', async (t) => {
+  db.saveDb();
+  const expected = fs.readFileSync(DB_PATH);
+  db.markDirty();
+  const writeSync = fs.writeSync;
+  let writes = 0;
+  t.mock.method(fs, 'writeSync', (fd, buffer, offset = 0, length = buffer.length - offset, position = null) => {
+    writes++;
+    return writeSync(fd, buffer, offset, Math.min(length, 997), position);
+  });
+  try {
+    db.saveDb();
+  } finally {
+    t.mock.restoreAll();
+  }
+  assert.ok(writes > 1, 'short writes must be retried');
+  assert.deepEqual(fs.readFileSync(DB_PATH), expected);
+  assert.equal(db.isDirty(), false);
+  assert.equal(fs.existsSync(DB_PATH + '.tmp'), false);
+  const SQL = await require('sql.js')();
+  const saved = new SQL.Database(fs.readFileSync(DB_PATH));
+  try {
+    assert.equal(saved.exec('PRAGMA integrity_check')[0].values[0][0], 'ok');
+  } finally { saved.close(); }
+});
+
+test('saveDb rejects a zero-progress write, retains dirty state and previous snapshot, and can retry', (t) => {
+  db.saveDb();
+  const previous = fs.readFileSync(DB_PATH);
+  db.exec("INSERT INTO groups (id, name, code) VALUES ('g-zero-write', 'Zero', 'ZERO')");
+  const writeSync = fs.writeSync;
+  let writes = 0;
+  t.mock.method(fs, 'writeSync', (fd, buffer, offset = 0, length = buffer.length - offset, position = null) => {
+    if (++writes > 1) return 0;
+    return writeSync(fd, buffer, offset, Math.min(length, 997), position);
+  });
+  try {
+    assert.throws(() => db.saveDb(), /write|progress/i);
+    assert.equal(db.isDirty(), true);
+    assert.deepEqual(fs.readFileSync(DB_PATH), previous);
+    assert.equal(fs.existsSync(DB_PATH + '.tmp'), false);
+  } finally { t.mock.restoreAll(); }
+  db.saveDb();
+  assert.equal(db.isDirty(), false);
+  assert.notDeepEqual(fs.readFileSync(DB_PATH), previous);
 });
 
 test('saveDb failure propagates the error and keeps dirty true', () => {

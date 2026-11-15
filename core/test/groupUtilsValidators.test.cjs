@@ -48,6 +48,28 @@ test('travel plan: field checks and status enum', () => {
   assert.equal(cjs.validateTravelPlanPatch({}), 'No fields to update');
 });
 
+test('both module formats reject null item text but allow omitted text and nullable assignees', async () => {
+  const esm = await import(pathToFileURL(path.join(__dirname, '../src/validators.js')).href);
+  for (const validators of [cjs, esm]) {
+    assert.equal(validators.validateListItemPatch({ text: null }), 'List item text must be 1-200 characters');
+    assert.equal(validators.validateListItemPatch({ done: true }), null);
+    assert.equal(validators.validateListItemPatch({ assignee_id: null }), null);
+  }
+});
+
+test('expected_revision remains an optional strict integer in both module formats', async () => {
+  const esm = await import(pathToFileURL(path.join(__dirname, '../src/validators.js')).href);
+  for (const validators of [cjs, esm]) {
+    for (const name of ['validateStay', 'validateStayPatch', 'validateTravelPlan', 'validateTravelPlanPatch',
+      'validateListPatch', 'validateListItemPatch']) {
+      for (const revision of [null, '1', 1.5, true]) {
+        assert.equal(validators[name]({ expected_revision: revision }), 'expected_revision must be an integer', name);
+      }
+      assert.equal(validators[name]({ expected_revision: 1 }), null, name);
+    }
+  }
+});
+
 test('list and list item validators', () => {
   assert.equal(cjs.validateList({ title: 'Groceries', kind: 'buy' }), null);
   assert.equal(cjs.validateList({ title: 'Groceries' }), null);

@@ -145,14 +145,19 @@ function GroupInfoSheet({ open, onClose, info, loading, error, notes = [], membe
               </button>
             </div>
           )}
-          {!noDataYet && section === 'stay' && (
-            <StayView info={data} adapter={adapter} onInfoPatch={setLocalInfo} onRefreshInfo={onRefreshInfo} askConfirm={askConfirm} />
-          )}
-          {!noDataYet && section === 'arrivals' && (
-            <TravelPlansView info={data} members={members} adapter={adapter} onInfoPatch={setLocalInfo} onRefreshInfo={onRefreshInfo} askConfirm={askConfirm} />
-          )}
-          {!noDataYet && section === 'lists' && (
-            <ListsView info={data} members={members} adapter={adapter} onInfoPatch={setLocalInfo} onRefreshInfo={onRefreshInfo} askConfirm={askConfirm} />
+          {!noDataYet && (
+            <>
+              {/* Keep section editors mounted so navigation never discards drafts. */}
+              <div hidden={section !== 'stay'}>
+                <StayView info={data} adapter={adapter} onInfoPatch={setLocalInfo} onRefreshInfo={onRefreshInfo} askConfirm={askConfirm} />
+              </div>
+              <div hidden={section !== 'arrivals'}>
+                <TravelPlansView info={data} members={members} adapter={adapter} onInfoPatch={setLocalInfo} onRefreshInfo={onRefreshInfo} askConfirm={askConfirm} />
+              </div>
+              <div hidden={section !== 'lists'}>
+                <ListsView info={data} members={members} adapter={adapter} onInfoPatch={setLocalInfo} onRefreshInfo={onRefreshInfo} askConfirm={askConfirm} />
+              </div>
+            </>
           )}
           {/* Always mounted: notes view state and drafts survive section switches */}
           <NotesWorkspace

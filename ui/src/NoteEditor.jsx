@@ -32,7 +32,7 @@ function NoteEditor({ draft, onDraftChange, saving, error, conflict, onLoadLates
   const onKeyDown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      onSave();
+      if (!saving) onSave();
     }
   };
 
@@ -46,26 +46,26 @@ function NoteEditor({ draft, onDraftChange, saving, error, conflict, onLoadLates
         <div className="ns-conflict" role="alert">
           Edited by someone else since you started.
           <div className="ns-conflict-actions">
-            <button type="button" className="btn btn-ghost btn-xs" onClick={onLoadLatest}>Load latest</button>
-            <button type="button" className="btn btn-ghost btn-xs" onClick={onKeepMine}>Keep my version (copy text)</button>
+            <button type="button" className="btn btn-ghost btn-xs" disabled={saving} onClick={onLoadLatest}>Load latest</button>
+            <button type="button" className="btn btn-ghost btn-xs" disabled={saving} onClick={onKeepMine}>Keep my version (copy text)</button>
           </div>
         </div>
       )}
       <label className="ns-field-label" htmlFor="ns-editor-title">Title</label>
       <input id="ns-editor-title" className="form-input" type="text" maxLength={100}
         placeholder="Title (optional) — e.g. Airbnb, Schedule"
-        value={draft.title} onChange={e => onDraftChange({ title: e.target.value })} />
+        disabled={saving} value={draft.title} onChange={e => onDraftChange({ title: e.target.value })} />
       <label className="ns-field-label" htmlFor="ns-editor-body">
         Body <span className="ns-count">{draft.body.length}/4000</span>
       </label>
       <textarea id="ns-editor-body" ref={bodyRef} className="form-input ns-body-input" maxLength={4000}
         rows={4} placeholder="Note — address, confirmation code, plan…"
-        value={draft.body}
+        disabled={saving} value={draft.body}
         onChange={e => { onDraftChange({ body: e.target.value }); autoGrow(e.target); }} />
       {error && <div className="error" role="alert">{error}</div>}
       <div className="ns-sticky-actions">
         <span className="ns-sticky-status" aria-live="polite">{status}</span>
-        <button type="button" className="btn btn-ghost btn-xs" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn btn-ghost btn-xs" disabled={saving} onClick={onCancel}>Cancel</button>
         <button type="button" className="btn btn-primary btn-xs"
           disabled={saving || !(draft.body || '').trim()} onClick={onSave}>
           {saving ? 'Saving…' : 'Save note'}

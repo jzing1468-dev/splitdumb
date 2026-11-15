@@ -15,7 +15,7 @@
  *   - onRefreshInfo: () => void (refetch after mutations)
  *   - askConfirm(title, message, action, confirmLabel): styled destructive confirm
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { fmtWallDateTime, fmtNoteDate } from './dateFormat';
 
 const BLANK_FORM = {
@@ -62,7 +62,9 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
   const [base, setBase] = useState(null);
+  const [baseRevision, setBaseRevision] = useState(undefined);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(null); // server stay from a 409
   const [copied, setCopied] = useState(false);
@@ -70,6 +72,7 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
   const startEdit = () => {
     setForm(formOfStay(stay));
     setBase(formOfStay(stay));
+    setBaseRevision(stay?.revision);
     setEditing(true);
     setError('');
     setConflict(null);
@@ -87,11 +90,15 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
   };
 
   const save = async () => {
-    if (!adapter?.saveStay) return;
+    if (!adapter?.saveStay || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
-      const saved = await adapter.saveStay({ ...nullifyEmpties(form), expected_revision: stay?.revision ?? null });
+      const saved = await adapter.saveStay({
+        ...nullifyEmpties(form),
+        ...(baseRevision === undefined ? {} : { expected_revision: baseRevision }),
+      });
       onInfoPatch(prev => ({ ...(prev || {}), stay: saved }));
       exitEdit();
       onRefreshInfo?.();
@@ -102,6 +109,7 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
         setError(err?.message || 'Save failed');
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -111,6 +119,7 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
     const next = formOfStay(conflict);
     setForm(next);
     setBase(next);
+    setBaseRevision(conflict.revision);
     onInfoPatch(prev => ({ ...(prev || {}), stay: conflict }));
     setConflict(null);
     setError('');
@@ -148,7 +157,7 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
   if (editing && form) {
     const timezones = timezoneOptions();
     return (
-      <div className="ns-stay-form">
+      <fieldset className="ns-stay-form" disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="ns-conflict-wrap">
           {conflict && (
             <div className="ns-conflict" role="alert">
@@ -187,23 +196,23 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
           {timezones.map(tz => <option key={tz} value={tz}>{tz}</option>)}
         </select>
         <label className="ns-field-label" htmlFor="ns-stay-instructions">Instructions</label>
-        <textarea id="ns-stay-instructions" className="form-input ns-body-input" maxLength={4000} rows={3}
+        <textarea id="ns-stay-instructions" className="form-input ns-body-input" maxLength={2000} rows={3}
           placeholder="Door codes, keyless entry, check-in steps…" value={form.instructions} onChange={set('instructions')} />
         <label className="ns-field-label" htmlFor="ns-stay-parking">Parking</label>
-        <input id="ns-stay-parking" className="form-input" type="text" maxLength={500}
+        <input id="ns-stay-parking" className="form-input" type="text" maxLength={2000}
           placeholder="Where to park, permits…" value={form.parking} onChange={set('parking')} />
         <label className="ns-field-label" htmlFor="ns-stay-wifi">Wi-Fi</label>
-        <input id="ns-stay-wifi" className="form-input" type="text" maxLength={200}
+        <input id="ns-stay-wifi" className="form-input" type="text" maxLength={2000}
           placeholder="Network / password" value={form.wifi} onChange={set('wifi')} />
         <div className="ns-form-grid">
           <div>
             <label className="ns-field-label" htmlFor="ns-stay-contact-name">Contact name</label>
-            <input id="ns-stay-contact-name" className="form-input" type="text" maxLength={100}
+            <input id="ns-stay-contact-name" className="form-input" type="text" maxLength={60}
               value={form.contact_name} onChange={set('contact_name')} />
           </div>
           <div>
             <label className="ns-field-label" htmlFor="ns-stay-contact-phone">Contact phone</label>
-            <input id="ns-stay-contact-phone" className="form-input" type="text" maxLength={50}
+            <input id="ns-stay-contact-phone" className="form-input" type="text" maxLength={60}
               value={form.contact_phone} onChange={set('contact_phone')} />
           </div>
         </div>
@@ -216,7 +225,7 @@ function StayView({ info, adapter, onInfoPatch, onRefreshInfo, askConfirm }) {
             {saving ? 'Saving…' : 'Save stay'}
           </button>
         </div>
-      </div>
+      </fieldset>
     );
   }
 

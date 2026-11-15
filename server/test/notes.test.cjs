@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'test-auth-secret';
+process.env.AUTH_SECRET = 'test-auth-secret';
 const DB_PATH = path.join(os.tmpdir(), `splitdumb-notes-test-${process.pid}-${Date.now()}.db`);
 process.env.DB_PATH = DB_PATH;
 

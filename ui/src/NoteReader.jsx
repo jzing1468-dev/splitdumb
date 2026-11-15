@@ -14,13 +14,33 @@ import { displayTitle } from './noteSearch';
 /** Only http(s) URLs become links; everything else stays plain text. */
 const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
 
+function linkEnd(part) {
+  let end = part.length;
+  const pairs = { ')': '(', ']': '[', '}': '{' };
+  while (end > 0) {
+    const last = part[end - 1];
+    if (/[.,!?;:]/.test(last)) { end--; continue; }
+    const open = pairs[last];
+    if (!open) break;
+    const url = part.slice(0, end);
+    if (url.split(last).length <= url.split(open).length) break;
+    end--;
+  }
+  return end;
+}
+
 function renderBody(body) {
   // split() with a capture group alternates plain text / URL parts.
   return String(body || '')
     .split(URL_RE)
-    .map((part, i) => (i % 2 === 1
-      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
-      : part));
+    .map((part, i) => {
+      if (i % 2 === 0) return part;
+      // Sentence punctuation and unbalanced wrappers are text, not URL data.
+      // Balanced parentheses inside a URL (e.g. wiki paths) remain intact.
+      const end = linkEnd(part);
+      const url = part.slice(0, end);
+      return [<a key={i} href={url} target="_blank" rel="noopener noreferrer">{url}</a>, part.slice(end)];
+    });
 }
 
 function NoteReader({ note, onBack, onEdit, onTogglePin, onDelete }) {

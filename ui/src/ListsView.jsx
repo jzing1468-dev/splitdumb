@@ -13,7 +13,7 @@
  *   - adapter: { addList, updateList, deleteList, addItem, updateItem, deleteItem }
  *   - onInfoPatch(updater), onRefreshInfo(), askConfirm(...)
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const KIND_LABELS = { bring: 'Bring', buy: 'Buy', checkout: 'Checkout' };
 
@@ -21,9 +21,12 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
   const lists = info?.lists || [];
   const [newList, setNewList] = useState(null);      // { title, kind }
   const [editingListId, setEditingListId] = useState(null);
+  const [listRevision, setListRevision] = useState(undefined);
   const [listForm, setListForm] = useState(null);    // { title, kind }
   const [addItemText, setAddItemText] = useState({}); // { [listId]: text }
   const [pendingItems, setPendingItems] = useState(() => new Set()); // in-flight item ids
+  const [writing, setWriting] = useState(false);
+  const writingRef = useRef(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(null);    // { kind: 'list'|'item', record } from a 409
 
@@ -32,12 +35,14 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
   const setItemText = (listId, text) => setAddItemText(prev => ({ ...prev, [listId]: text }));
 
   const startNewList = () => { setNewList({ title: '', kind: '' }); setError(''); };
-  const startEditList = (l) => { setEditingListId(l.id); setListForm({ title: l.title || '', kind: l.kind || '' }); setError(''); };
+  const startEditList = (l) => { setEditingListId(l.id); setListRevision(l.revision); setListForm({ title: l.title || '', kind: l.kind || '' }); setError(''); };
   const exitListEdit = () => { setEditingListId(null); setListForm(null); };
 
   const createList = async () => {
     const title = (newList?.title || '').trim();
-    if (!title || !adapter?.addList) return;
+    if (!title || !adapter?.addList || writingRef.current) return;
+    writingRef.current = true;
+    setWriting(true);
     setError('');
     try {
       const data = { title };
@@ -48,19 +53,24 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
       onRefreshInfo?.();
     } catch (err) {
       setError(err?.message || 'Could not create the list');
+    } finally {
+      writingRef.current = false;
+      setWriting(false);
     }
   };
 
   const saveList = async () => {
     const list = lists.find(l => String(l.id) === String(editingListId));
     const title = (listForm?.title || '').trim();
-    if (!list || !title || !adapter?.updateList) return;
+    if (!list || !title || !adapter?.updateList || writingRef.current) return;
+    writingRef.current = true;
+    setWriting(true);
     setError('');
     try {
       const saved = await adapter.updateList(list.id, {
         title,
         kind: listForm.kind || null,
-        expected_revision: list.revision,
+        expected_revision: listRevision,
       });
       patchLists(ls => ls.map(l => String(l.id) === String(saved.id) ? { ...saved, items: l.items || [] } : l));
       exitListEdit();
@@ -69,6 +79,9 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
     } catch (err) {
       if (err?.status === 409 && err.body?.list) setConflict({ kind: 'list', record: err.body.list });
       else setError(err?.message || 'Save failed');
+    } finally {
+      writingRef.current = false;
+      setWriting(false);
     }
   };
 
@@ -77,6 +90,7 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
     const saved = conflict.record;
     patchLists(ls => ls.map(l => String(l.id) === String(saved.id) ? { ...saved, items: l.items || [] } : l));
     setListForm({ title: saved.title || '', kind: saved.kind || '' });
+    setListRevision(saved.revision);
     setConflict(null);
     setError('');
   };
@@ -99,7 +113,9 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
 
   const addItem = async (listId) => {
     const text = (addItemText[listId] || '').trim();
-    if (!text || !adapter?.addItem) return;
+    if (!text || !adapter?.addItem || writingRef.current) return;
+    writingRef.current = true;
+    setWriting(true);
     setError('');
     try {
       const saved = await adapter.addItem(listId, { text });
@@ -110,6 +126,9 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
       onRefreshInfo?.();
     } catch (err) {
       setError(err?.message || 'Could not add the item');
+    } finally {
+      writingRef.current = false;
+      setWriting(false);
     }
   };
 
@@ -190,7 +209,7 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
   );
 
   return (
-    <div className="ns-lists">
+    <fieldset className="ns-lists" disabled={writing} aria-busy={writing} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {error && <div className="error" role="alert">{error}</div>}
       {lists.length === 0 && !newList && (
         <div className="empty-state">
@@ -208,7 +227,7 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
               {editingThis ? (
                 <div className="ns-list-edit">
                   <label className="ns-field-label" htmlFor={`ns-list-title-${l.id}`}>Title</label>
-                  <input id={`ns-list-title-${l.id}`} className="form-input" type="text" maxLength={100}
+                  <input id={`ns-list-title-${l.id}`} className="form-input" type="text" maxLength={60}
                     value={listForm.title} onChange={e => setListForm(prev => ({ ...prev, title: e.target.value }))} />
                   <label className="ns-field-label" htmlFor={`ns-list-kind-${l.id}`}>Kind</label>
                   <select id={`ns-list-kind-${l.id}`} className="form-input" value={listForm.kind}
@@ -277,7 +296,7 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
                   <input
                     className="form-input"
                     type="text"
-                    maxLength={300}
+                    maxLength={200}
                     placeholder="Add an item…"
                     value={addItemText[l.id] || ''}
                     onChange={e => setItemText(l.id, e.target.value)}
@@ -293,7 +312,7 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
       {newList ? (
         <div className="ns-list-card ns-list-new">
           <label className="ns-field-label" htmlFor="ns-new-list-title">Title</label>
-          <input id="ns-new-list-title" className="form-input" type="text" maxLength={100}
+          <input id="ns-new-list-title" className="form-input" type="text" maxLength={60}
             placeholder="e.g. Groceries, Bring, Checkout…"
             value={newList.title} onChange={e => setNewList(prev => ({ ...prev, title: e.target.value }))}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createList(); } }} />
@@ -315,8 +334,8 @@ function ListsView({ info, members = [], adapter, onInfoPatch, onRefreshInfo, as
       ) : (
         <button type="button" className="ns-add-btn" onClick={startNewList}>＋ New list</button>
       )}
-      <p className="ns-lists-hint">Checking something off never creates an expense.</p>
-    </div>
+      <p className="ns-lists-hint">{writing ? 'Saving…' : 'Checking something off never creates an expense.'}</p>
+    </fieldset>
   );
 }
 

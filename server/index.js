@@ -307,6 +307,11 @@ app.delete('/api/v1/groups/:code', requireAdmin, (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   auditLog(req, 'delete', 'group', group.id, { name: group.name, code: group.code });
+  // Foreign-key cascades are not enabled; remove utility children explicitly.
+  runOnce('DELETE FROM list_items WHERE list_id IN (SELECT id FROM lists WHERE group_id = ?)', group.id);
+  runOnce('DELETE FROM lists WHERE group_id = ?', group.id);
+  runOnce('DELETE FROM travel_plans WHERE group_id = ?', group.id);
+  runOnce('DELETE FROM stay WHERE group_id = ?', group.id);
   // Delete cascading: settlements, splits, expenses, notes, members, then group
   prepare('DELETE FROM settlements WHERE group_id = ?').run(group.id);
   prepare('DELETE FROM notes WHERE group_id = ?').run(group.id);
@@ -467,12 +472,13 @@ app.delete('/api/v1/groups/:code/members/:id', requireAdmin, (req, res) => {
   }
 
   try {
+    const now = new Date().toISOString();
     // Snapshot the departing member's name onto their notes, then detach
     // authorship so the notes survive the removal (author_member_id is
     // nullable since the notes migration).
     runOnce(
-      'UPDATE notes SET author_name = ?, author_member_id = NULL WHERE author_member_id = ? AND group_id = ?',
-      member.name, req.params.id, group.id
+      'UPDATE notes SET author_name = ?, author_member_id = NULL, revision = revision + 1, updated_at = ? WHERE author_member_id = ? AND group_id = ?',
+      member.name, now, req.params.id, group.id
     );
     // Remove member's splits
     runOnce('DELETE FROM splits WHERE member_id = ?', req.params.id);
@@ -485,10 +491,12 @@ app.delete('/api/v1/groups/:code/members/:id', requireAdmin, (req, res) => {
     // Remove settlements involving this member
     runOnce("DELETE FROM settlements WHERE (from_id = ? OR to_id = ?) AND group_id = ?",
       req.params.id, req.params.id, group.id);
-    // Group utilities: the member's travel plans go with them; their list
-    // item assignments detach (items stay readable, assignee_name nulls).
+    // Detachment is an edit: invalidate retained drafts of surviving resources.
     runOnce('DELETE FROM travel_plans WHERE member_id = ?', req.params.id);
-    runOnce('UPDATE list_items SET assignee_id = NULL WHERE assignee_id = ?', req.params.id);
+    runOnce('UPDATE travel_plans SET pickup_by = NULL, revision = revision + 1, updated_at = ? WHERE pickup_by = ? AND group_id = ?',
+      now, req.params.id, group.id);
+    runOnce('UPDATE list_items SET assignee_id = NULL, revision = revision + 1, updated_at = ? WHERE assignee_id = ? AND list_id IN (SELECT id FROM lists WHERE group_id = ?)',
+      now, req.params.id, group.id);
     // Remove the member
     runOnce('DELETE FROM members WHERE id = ? AND group_id = ?', req.params.id, group.id);
     saveDb();
@@ -1237,6 +1245,8 @@ app.put('/api/v1/groups/:code/stay', (req, res) => {
 app.delete('/api/v1/groups/:code/stay', (req, res) => {
   const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
   const existing = getOnce('SELECT * FROM stay WHERE group_id = ?', group.id);
   if (existing) {
     runOnce('DELETE FROM stay WHERE id = ?', existing.id);
@@ -1317,6 +1327,8 @@ app.put('/api/v1/groups/:code/travel-plans/:memberId', (req, res) => {
 app.delete('/api/v1/groups/:code/travel-plans/:memberId', (req, res) => {
   const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
   const plan = getOnce('SELECT * FROM travel_plans WHERE group_id = ? AND member_id = ?', group.id, req.params.memberId);
   if (plan) {
     runOnce('DELETE FROM travel_plans WHERE id = ?', plan.id);
@@ -1398,6 +1410,8 @@ app.patch('/api/v1/groups/:code/lists/:id', (req, res) => {
 app.delete('/api/v1/groups/:code/lists/:id', (req, res) => {
   const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
   const list = getOnce('SELECT * FROM lists WHERE id = ? AND group_id = ?', req.params.id, group.id);
   if (!list) return res.status(404).json({ error: 'List not found' });
   runOnce('DELETE FROM list_items WHERE list_id = ?', list.id);
@@ -1503,6 +1517,8 @@ app.patch('/api/v1/groups/:code/items/:itemId', (req, res) => {
 app.delete('/api/v1/groups/:code/items/:itemId', (req, res) => {
   const group = getGroupByCode(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
+  const { error: actorError } = requireActorMember(req, group);
+  if (actorError) return res.status(400).json({ error: actorError });
   const item = getOnce(
     'SELECT li.* FROM list_items li JOIN lists l ON li.list_id = l.id WHERE li.id = ? AND l.group_id = ?',
     req.params.itemId, group.id

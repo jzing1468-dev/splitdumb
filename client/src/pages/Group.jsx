@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, getSelectedMember, setSelectedMember, clearSelectedMember, removeRecentGroup } from '../api';
 import { GroupPage } from '@splitdumb/ui';
@@ -18,30 +18,59 @@ function Group() {
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState('');
 
+  const refreshRequests = useRef({ group: 0, info: 0, audit: 0 });
+
+  // Only the latest issued read may publish data, errors or loading state.
+  // Mutation-triggered refreshes invalidate older reads before they can undo
+  // an acknowledged edit or reintroduce a deleted resource.
   const fetchGroup = useCallback(async () => {
-    try { const data = await api.getGroup(code); setGroup(data); setError(''); }
-    catch (err) {
-      if (err.message === 'Group not found') {
-        removeRecentGroup(code);
-      }
+    const requests = refreshRequests.current;
+    const requestId = ++requests.group;
+    try {
+      const data = await api.getGroup(code);
+      if (requestId !== requests.group) return;
+      setGroup(data);
+      setError('');
+    } catch (err) {
+      if (requestId !== requests.group) return;
+      if (err.message === 'Group not found') removeRecentGroup(code);
       setError(err.message);
+    } finally {
+      if (requestId === requests.group) setLoading(false);
     }
-    finally { setLoading(false); }
   }, [code]);
 
-  // Lightweight group-info read (stay / travel plans / lists / counts).
-  // Guarded: only when the adapter endpoint exists on this client build.
   const fetchInfo = useCallback(async () => {
     if (typeof api.getGroupInfo !== 'function') return;
+    const requests = refreshRequests.current;
+    const requestId = ++requests.info;
     setInfoLoading(true);
-    try { setInfo(await api.getGroupInfo(code)); setInfoError(''); }
-    catch (err) { setInfoError(err.message || 'Failed to load group info'); }
-    finally { setInfoLoading(false); }
+    try {
+      const data = await api.getGroupInfo(code);
+      if (requestId !== requests.info) return;
+      setInfo(data);
+      setInfoError('');
+    } catch (err) {
+      if (requestId === requests.info) setInfoError(err.message || 'Failed to load group info');
+    } finally {
+      if (requestId === requests.info) setInfoLoading(false);
+    }
   }, [code]);
 
   const fetchAuditLog = useCallback(async () => {
-    try { setAuditLog(await api.getAuditLog(code, 50)); }
-    catch (err) { console.warn('Failed to load audit log:', err?.message || err); }
+    const requests = refreshRequests.current;
+    const requestId = ++requests.audit;
+    try {
+      const data = await api.getAuditLog(code, 50);
+      if (requestId === requests.audit) setAuditLog(data);
+    } catch (err) {
+      if (requestId === requests.audit) console.warn('Failed to load audit log:', err?.message || err);
+    }
+  }, [code]);
+
+  useEffect(() => {
+    const requests = refreshRequests.current;
+    return () => { requests.group++; requests.info++; requests.audit++; };
   }, [code]);
 
   // Deferred to a microtask so the fetch effects don't synchronously

@@ -9,7 +9,7 @@
  *
  * Mutations reconcile the returned saved record into an overlay so the index
  * and reader update immediately, before the parent's refresh lands. Edits
- * send expected_revision from the current base note; a 409 surfaces as
+ * send expected_revision captured when the draft starts; a 409 surfaces as
  * error.status + error.note / error.body (client/src/api.js request()).
  *
  * Props:
@@ -36,7 +36,7 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
   const [selectedId, setSelectedId] = useState(null); // note id (string); 'new' while drafting
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('updated');        // 'updated' | 'title'
-  const [drafts, setDrafts] = useState({});           // { [id]: { title, body } }
+  const [drafts, setDrafts] = useState({});           // { [id]: { title, body, base } }
   const [overlay, setOverlay] = useState({});         // { [id]: savedNote | null }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +44,7 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
   const [confirm, setConfirm] = useState(null);
 
   const searchRef = useRef(null);
+  const savingRef = useRef(false); // synchronous guard, including same-tick shortcuts
   // Escape handling reads the latest state through a ref so one listener suffices
   const escapeRef = useRef(() => {});
 
@@ -66,16 +67,35 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
     return out;
   }, [notes, overlay]);
 
+  // Retire acknowledged saved rows so a later remote deletion is visible.
+  // Keep local deletion tombstones for this workspace's lifetime: an already
+  // empty props array is not proof that a post-delete refresh has arrived.
+  // UUIDs are never reused, so an old snapshot must never restore these IDs.
+  useEffect(() => {
+    setOverlay(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const [id, saved] of Object.entries(prev)) {
+        const row = notes.find(n => String(n.id) === id);
+        if (saved && row && (row.revision ?? 0) >= (saved.revision ?? 0)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [notes, overlay]);
+
   const noteById = (id) => effectiveNotes.find(n => String(n.id) === String(id)) || null;
   const baseDraftOf = (id) => {
-    if (id === 'new') return { title: '', body: '' };
-    const n = noteById(id);
-    return n ? { title: n.title || '', body: n.body || '' } : { title: '', body: '' };
+    const n = id === 'new' ? null : noteById(id);
+    const base = { title: n?.title || '', body: n?.body || '', revision: n?.revision };
+    return { title: base.title, body: base.body, base };
   };
   const isDirty = (id) => {
     const d = drafts[id];
     if (!d) return false;
-    const base = baseDraftOf(id);
+    const base = d.base;
     return (d.title || '') !== base.title || (d.body || '') !== base.body;
   };
 
@@ -106,27 +126,33 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
   });
 
   const leaveEditor = (dest) => {
+    if (savingRef.current) return;
     if (isDirty(selectedId)) {
       askDiscard(() => { discardDraft(selectedId); goView(dest); });
       return;
     }
+    discardDraft(selectedId);
     goView(dest);
   };
 
   // Explicit close (✕ / scrim): warn on a dirty editor, then hand off to the container.
   const requestClose = () => {
+    if (savingRef.current) return;
     if (view === 'editor' && isDirty(selectedId)) {
-      askDiscard(() => { discardDraft(selectedId); onCloseRequest?.(); });
+      askDiscard(() => { discardDraft(selectedId); setView('index'); onCloseRequest?.(); });
       return;
     }
+    if (view === 'editor') { discardDraft(selectedId); setView('index'); }
     onCloseRequest?.();
   };
   useImperativeHandle(ref, () => ({ requestClose }), [view, selectedId, drafts, notes, overlay, onCloseRequest]);
 
   const saveDraft = async () => {
+    if (savingRef.current) return;
     const id = selectedId;
     const draft = drafts[id];
     if (!draft || !(draft.body || '').trim() || !adapter) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
@@ -134,9 +160,7 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
       if (id === 'new') {
         saved = await adapter.addNote({ title: draft.title, body: draft.body });
       } else {
-        // Revision of the base we edited against; on conflict, the server's note
-        const base = (conflict && String(conflict.id) === String(id)) ? conflict : noteById(id);
-        saved = await adapter.editNote(id, { title: draft.title, body: draft.body, expected_revision: base?.revision });
+        saved = await adapter.editNote(id, { title: draft.title, body: draft.body, expected_revision: draft.base.revision });
       }
       setOverlay(prev => ({ ...prev, [String(saved.id)]: saved }));
       discardDraft(id);
@@ -152,6 +176,7 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
         setError((err && err.message) || 'Save failed');
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -159,7 +184,8 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
   const loadLatest = () => {
     if (!conflict) return;
     const id = String(conflict.id);
-    setDrafts(prev => ({ ...prev, [id]: { title: conflict.title || '', body: conflict.body || '' } }));
+    const base = { title: conflict.title || '', body: conflict.body || '', revision: conflict.revision };
+    setDrafts(prev => ({ ...prev, [id]: { title: base.title, body: base.body, base } }));
     setOverlay(prev => ({ ...prev, [id]: conflict }));
     setConflict(null);
     setError('');
@@ -276,6 +302,7 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
           />
         ) : (
           <div className="empty-state">
+            <button type="button" className="btn btn-ghost btn-xs ns-back" onClick={() => setView('index')}>← All notes</button>
             <p>This note is no longer available.</p>
           </div>
         )
@@ -283,10 +310,13 @@ function NotesWorkspace({ ref, active = false, notes = [], members = [], actor, 
       {view === 'editor' && draft && (
         <NoteEditor
           draft={draft}
-          onDraftChange={(patch) => setDrafts(prev => ({
-            ...prev,
-            [selectedId]: { ...prev[selectedId], ...patch },
-          }))}
+          onDraftChange={(patch) => {
+            if (savingRef.current) return;
+            setDrafts(prev => ({
+              ...prev,
+              [selectedId]: { ...prev[selectedId], ...patch },
+            }));
+          }}
           saving={saving}
           error={error}
           conflict={activeConflict}
