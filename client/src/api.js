@@ -84,7 +84,8 @@ export const api = {
   createGroup: (name, passcode) => request('/groups', { method: 'POST', body: JSON.stringify({ name, passcode }) }),
   getGroup: (code) => request(`/groups/${code}`),
   deleteGroup: (code) => request(`/groups/${code}`, { method: 'DELETE' }),
-  updateGroup: (code, data) => request(`/groups/${code}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // memberRequest so the rename is attributed to the acting member in the audit log
+  updateGroup: (code, data) => memberRequest(code, `/groups/${code}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   addMember: (code, name) => memberRequest(code, `/groups/${code}/members`, { method: 'POST', body: JSON.stringify({ name }) }),
   editMember: (code, id, data) => memberRequest(code, `/groups/${code}/members/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

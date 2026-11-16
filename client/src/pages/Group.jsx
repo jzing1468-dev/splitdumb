@@ -106,8 +106,13 @@ function Group() {
   useEffect(() => {
     if (group) {
       const saved = JSON.parse(localStorage.getItem('splitdumb_groups') || '[]');
-      if (!saved.find(g => g.code === group.code)) {
+      const entry = saved.find(g => g.code === group.code);
+      if (!entry) {
         saved.push({ code: group.code, name: group.name });
+        localStorage.setItem('splitdumb_groups', JSON.stringify(saved));
+      } else if (entry.name !== group.name) {
+        // Keep the recent-groups label in sync after a rename
+        entry.name = group.name;
         localStorage.setItem('splitdumb_groups', JSON.stringify(saved));
       }
     }
@@ -139,6 +144,7 @@ function Group() {
     updateItem: async (itemId, data) => api.updateItem(code, itemId, data),
     deleteItem: async (itemId) => api.deleteItem(code, itemId),
     deleteGroup: async () => api.deleteGroup(code),
+    updateGroup: async (data) => api.updateGroup(code, data),
     uploadAttachment: async (expenseId, file) => api.uploadAttachment(code, expenseId, file),
     selectMember: (member) => {
       setSelectedMember(code, { id: member.id, name: member.name, color: member.color });

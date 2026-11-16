@@ -70,6 +70,9 @@ function GroupPage({
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [copiedPay, setCopiedPay] = useState(null);
   const [showConfirmed, setShowConfirmed] = useState(false);
+  const [editingGroupName, setEditingGroupName] = useState(false);
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const [savingGroupName, setSavingGroupName] = useState(false);
   // Styled replacement for native confirm(): { title, message, confirmLabel, action }
   const [confirmDialog, setConfirmDialog] = useState(null);
   const askConfirm = (title, message, action, confirmLabel = 'Confirm') =>
@@ -182,6 +185,24 @@ function GroupPage({
   const shareUrl = `${window.location.origin}${window.location.pathname}?group=${encodeURIComponent(group.code)}`;
   const copyCode = () => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
+  // Rename flow: hidden unless the adapter supports it (server app only;
+  // the P2P app passes no updateGroup).
+  const startEditGroupName = () => {
+    setGroupNameDraft(group?.name || '');
+    setEditingGroupName(true);
+  };
+  const saveGroupName = async () => {
+    const next = groupNameDraft.trim();
+    setEditingGroupName(false);
+    if (!next || next === group?.name) return;
+    setSavingGroupName(true);
+    try {
+      await adapter.updateGroup({ name: next });
+      if (onRefresh) onRefresh();
+    } catch (err) { setError(err.message); }
+    finally { setSavingGroupName(false); }
+  };
+
   const addMember = async () => {
     if (!newMember.trim()) return;
     try {
@@ -278,7 +299,33 @@ function GroupPage({
     <div className="group-header">
       <div className="group-header-row">
         <div className="group-header-left">
-          <h1 className="group-name">{group?.name}</h1>
+          {editingGroupName ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                className="form-input group-name-input"
+                value={groupNameDraft}
+                onChange={e => setGroupNameDraft(e.target.value)}
+                maxLength={50}
+                autoFocus
+                aria-label="Group name"
+                onKeyDown={e => {
+                  if (e.key === 'Enter') saveGroupName();
+                  if (e.key === 'Escape') setEditingGroupName(false);
+                }}
+              />
+              <button className="btn btn-primary btn-xs" onClick={saveGroupName} title="Save name">✓</button>
+              <button className="btn btn-ghost btn-xs" onClick={() => setEditingGroupName(false)} title="Cancel">✗</button>
+            </span>
+          ) : (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <h1 className="group-name">{group?.name}</h1>
+              {adapter.updateGroup && (
+                <button className="btn btn-ghost btn-xs" onClick={startEditGroupName} disabled={savingGroupName}
+                  title="Rename group" aria-label="Rename group"
+                  style={{ padding: '2px 8px', fontSize: '0.72rem' }}>✏️ Rename</button>
+              )}
+            </span>
+          )}
           <div className="group-header-sub">
             <code>{group?.code}</code>
             <button className="copy-btn" onClick={copyCode}>{copied ? '✓' : '🔗'}</button>

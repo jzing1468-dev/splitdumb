@@ -328,9 +328,15 @@ app.patch('/api/v1/groups/:code', (req, res) => {
   const group = prepare('SELECT * FROM groups WHERE code = ?').get(req.params.code);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   const { name, passcode: newPasscode } = req.body;
+  if (name === undefined && newPasscode === undefined) {
+    return res.status(400).json({ error: 'No fields to update' });
+  }
+  if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 50)) {
+    return res.status(400).json({ error: 'Group name must be 1-50 characters' });
+  }
   const changes = {};
   try {
-    if (name && name.trim().length > 0) {
+    if (name !== undefined) {
       prepare('UPDATE groups SET name = ? WHERE id = ?').run(name.trim(), group.id);
       changes.name = name.trim();
     }

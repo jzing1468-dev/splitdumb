@@ -361,6 +361,14 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   margin-bottom: 2px;
 }
 
+.group-name-input {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  padding: 4px 10px;
+  max-width: 320px;
+}
+
 .copy-btn {
   background: none;
   border: none;
